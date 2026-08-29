@@ -81,9 +81,9 @@
 
         <article id="article">
           <section id=”introduction” class=”article-section introduction”>
-            <p>Last month a team I advise spent $14,000 on reasoning tokens in a single week. Their agent ran every request — invoice extraction, entity resolution, migration review — at high effort. The extraction tasks took 8x longer and produced identical results to low effort. The migration reviews, where high effort actually mattered, were 12% of the traffic. They were paying a premium on 88% of requests for no measurable gain.</p>
+            <p>An engineer opens an LLM console, sees a selector labeled <em>low</em>, <em>medium</em>, or <em>high</em>, and moves it to the right because it looks like a quality dial. The invoice extraction that ran fine at low effort now takes 8x longer and returns the same answer. The agent that routes every request through high-effort reasoning burns through its token budget on tasks that have one obvious solution path. The bill doubles; the output doesn't improve.</p>
 
-            <p>This is the default failure mode. An engineer opens an LLM console, sees a selector labeled <em>low</em>, <em>medium</em>, or <em>high</em>, and moves it to the right because it looks like a quality dial. But reasoning effort is not a quality dial. It is an inference-time compute policy — and like any resource allocation, it can be wasted.</p>
+            <p>This is the default failure mode. Reasoning effort is not a quality dial. It is an inference-time compute policy — and like any resource allocation, it can be wasted.</p>
 
             <p>A few years ago, developers tried to elicit reasoning by writing “think step by step,” supplying worked examples, or sampling several answers and voting. Then models were trained to produce useful intermediate work. Providers began charging for hidden reasoning tokens. Open-weight releases exposed the training recipes. Agent harnesses learned to vary the budget from one step to the next. What began as a prompting trick became a layer of inference infrastructure that most teams are using wrong.</p>
 
