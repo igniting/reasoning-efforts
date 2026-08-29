@@ -18,7 +18,7 @@ const navigationGroup = {
   "agent-harness": "automatic-effort",
   evaluating: "choosing",
   "failure-modes": "production",
-  closing: "future",
+  closing: "rules",
 };
 
 function updateCurrentSection() {

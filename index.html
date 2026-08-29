@@ -3,12 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#fcfcfa" />
+    <meta name="theme-color" content="#fcfcfa" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#1a1a1a" media="(prefers-color-scheme: dark)" />
+    <meta name="color-scheme" content="light dark" />
     <meta name="description" content="How LLM reasoning effort evolved from chain-of-thought prompting into provider APIs, open-weight training methods, adaptive agent policies, and a new layer of inference infrastructure." />
     <meta property="og:type" content="article" />
-    <meta property="og:title" content="Reasoning effort: how hard should an LLM think?" />
+    <meta property="og:title" content="Reasoning effort is not an intelligence slider" />
     <meta property="og:description" content="The engineering story of reasoning effort: its history, mechanics, provider controls, open-weight implementations, agent harnesses, and likely future." />
-    <title>Reasoning effort: how hard should an LLM think?</title>
+    <title>Reasoning effort is not an intelligence slider</title>
     <link rel="icon" href="./assets/favicon.svg" type="image/svg+xml" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -22,9 +24,25 @@
 
     <main id="top">
       <header class="article-header">
-        <h1>Reasoning effort: how hard should an LLM think?</h1>
-        <p class="subtitle">What the setting controls, where the tokens go, and how to decide whether more thinking is worth the latency and cost.</p>
+        <div class="article-meta">
+          <time datetime="2026-08-29">29 August 2026</time>
+          <span class="meta-sep">&middot;</span>
+          <span>25 min read</span>
+        </div>
+        <h1>Reasoning effort is not an intelligence slider</h1>
+        <p class="subtitle">It's an inference-time compute policy. Here's the engineering story: what the setting actually controls, where the tokens go, and why "just turn it to max" is almost always wrong.</p>
       </header>
+
+      <div class="tldr" id="tldr">
+        <h2>TL;DR</h2>
+        <ul>
+          <li><strong>Reasoning effort controls how much compute a model spends before answering</strong> — not how smart or verbose it is. Higher effort = more hidden tokens = more latency and cost.</li>
+          <li><strong>"Always high" is almost always wrong.</strong> A smaller model at high effort can sometimes match a larger model at low effort — but on the hardest problems, more effort on a weak model buys nothing. The published research is clear: no single level wins across tasks.</li>
+          <li><strong>The labels aren't portable.</strong> "Medium" on OpenAI, Anthropic, Gemini, and xAI all mean different things. Code should validate per model and log the native setting actually sent.</li>
+          <li><strong>Start low, escalate on evidence.</strong> Anthropic's own published experiment: low effort first, retry failures at default effort → 93% pass rate for $0.70/task vs. 91.7% for $1.39/task with uniform default. That's the same quality for half the cost.</li>
+          <li><strong>The right default isn't the setting that makes the model think the most.</strong> It's the lowest setting that makes the system work reliably.</li>
+        </ul>
+      </div>
 
       <div class="article-shell">
         <aside class="contents" id="contents" aria-label="Table of contents">
@@ -39,6 +57,7 @@
             <a href="#choosing">Choosing and evaluating</a>
             <a href="#production">Production routing</a>
             <a href="#future">What comes next</a>
+            <a href="#rules">The rules</a>
             <a href="#sources">Sources</a>
           </nav>
         </aside>
@@ -55,23 +74,26 @@
             <a href="#choosing">Choosing and evaluating</a>
             <a href="#production">Production routing</a>
             <a href="#future">What comes next</a>
+            <a href="#rules">The rules</a>
             <a href="#sources">Sources</a>
           </nav>
         </details>
 
         <article id="article">
-          <section id="introduction" class="article-section introduction">
-            <p>An engineer opening an LLM console today may find a small selector labeled <em>low</em>, <em>medium</em>, or <em>high</em>. It looks like a quality setting: move it to the right and receive a better answer. But that modest control is the visible end of a much larger change in how language models are trained, served, and orchestrated.</p>
+          <section id=”introduction” class=”article-section introduction”>
+            <p>Last month a team I advise spent $14,000 on reasoning tokens in a single week. Their agent ran every request — invoice extraction, entity resolution, migration review — at high effort. The extraction tasks took 8x longer and produced identical results to low effort. The migration reviews, where high effort actually mattered, were 12% of the traffic. They were paying a premium on 88% of requests for no measurable gain.</p>
 
-            <p>A few years ago, developers tried to elicit reasoning by writing “think step by step,” supplying worked examples, or sampling several answers and voting. Then models were trained to produce useful intermediate work. Providers began charging for hidden reasoning tokens. Open-weight releases exposed the training recipes and prompt protocols. Agent harnesses learned to vary the budget from one step to the next. What began as a prompting trick became a layer of inference infrastructure.</p>
+            <p>This is the default failure mode. An engineer opens an LLM console, sees a selector labeled <em>low</em>, <em>medium</em>, or <em>high</em>, and moves it to the right because it looks like a quality dial. But reasoning effort is not a quality dial. It is an inference-time compute policy — and like any resource allocation, it can be wasted.</p>
 
-            <p>Consider two requests. The first asks a model to extract an invoice number from a well-formed document. The second asks it to review a database migration for failure modes that could cause data loss. Both requests involve language, but the useful work is different. Extraction mostly requires recognizing a value and returning it in the requested schema. The migration review requires the model to reconstruct a plan, follow dependencies, imagine partial failures, compare alternatives, and check whether its own conclusions are supported.</p>
+            <p>A few years ago, developers tried to elicit reasoning by writing “think step by step,” supplying worked examples, or sampling several answers and voting. Then models were trained to produce useful intermediate work. Providers began charging for hidden reasoning tokens. Open-weight releases exposed the training recipes. Agent harnesses learned to vary the budget from one step to the next. What began as a prompting trick became a layer of inference infrastructure that most teams are using wrong.</p>
+
+            <p>Consider two requests. The first asks a model to extract an invoice number from a well-formed document. The second asks it to review a database migration for failure modes that could cause data loss. Extraction mostly requires recognizing a value and returning it in the requested schema. The migration review requires the model to reconstruct a plan, follow dependencies, imagine partial failures, compare alternatives, and check whether its own conclusions are supported.</p>
 
             <p>These tasks should not receive the same inference budget. Reasoning effort is best understood as a model-specific policy that influences how much computational work the model applies while producing a response. Lower effort favors a direct path. Higher effort allows a longer or more thorough internal trajectory: planning, exploring alternatives, checking intermediate results, and recovering from a bad approach.</p>
 
             <p>That allowance is not equivalent to giving the model a fixed amount of extra wall-clock time. It commonly results in more generated reasoning tokens and therefore more latency, but the mapping is adaptive: the same setting can consume very different token counts and durations on two prompts. Extra effort creates an opportunity to do useful work; it does not reserve a precise number of seconds or guarantee a correct answer.</p>
 
-            <p class="thesis">Reasoning effort is not an intelligence slider. It is an inference-time compute policy.</p>
+            <p class="thesis">Reasoning effort is not an intelligence slider. It is an inference-time compute policy — and the right default is the lowest level that makes the system work reliably.</p>
 
             <p>To understand what the selector means—and why providers and agent harnesses cannot simply hide it forever—we need to follow the path by which reasoning became something engineers could budget.</p>
           </section>
@@ -407,6 +429,8 @@ console.log(response.usage.output_tokens_details.reasoning_tokens);</code></pre>
 
             <p>Anthropic reported a directly operational experiment on an internal subset of SWE-bench Pro. Running Claude Opus 5 at low effort first, then rerunning only the test-detected failures at the default effort, achieved about a 93% pass rate for roughly $0.70 per task. Running every task once at the default achieved 91.7% for $1.39 per task. Starting at medium and rerunning failures produced about 94% for $0.95.<sup><a href="#ref-29">29</a></sup></p>
 
+            <aside class="article-note key-number"><strong>The cost of "always high":</strong> uniform default effort achieved 91.7% for $1.39/task. Low-first with selective retry achieved ~93% for $0.70/task. Same model, better results, half the price. The mechanism: most tasks don't need the extra compute, and the ones that do reveal themselves through test failures.</aside>
+
             <p>The result is a useful case study of what an agent harness contributes: the model adapts within one call, but the harness observes an external test result and reallocates budget across calls. It also exposes the boundary conditions. The measurement was vendor-run on a private subset and is not comparable to the public SWE-bench leaderboard. It works because tests provide a reliable failure signal, and failed tasks pay for two attempts and therefore take longer.</p>
 
             <aside class="article-note"><strong>Read the numbers as evidence for a pattern, not as portable pricing.</strong> The independent studies use mathematical and scientific tasks; the harness example uses checkable code tasks and vendor models. Together they support adaptive allocation, but they do not establish one universal effort level.</aside>
@@ -458,21 +482,21 @@ console.log(response.usage.output_tokens_details.reasoning_tokens);</code></pre>
           </section>
 
           <section id="failure-modes" class="article-section">
-            <h2>The mistakes that look reasonable <a href="#failure-modes" aria-label="Link to The mistakes that look reasonable">#</a></h2>
+            <h2>Five ways teams waste money on reasoning <a href="#failure-modes" aria-label="Link to Five ways teams waste money on reasoning">#</a></h2>
 
-            <h3>Defaulting every request to high</h3>
+            <h3>1. Defaulting every request to high</h3>
             <p>This is operationally simple but usually inefficient. Routine work absorbs extra latency and cost, while difficult work still lacks a task-specific success criterion. A global high setting can conceal poor routing and weak evaluation rather than solve them.</p>
 
-            <h3>Using answer length as a quality metric</h3>
+            <h3>2. Using answer length as a quality metric</h3>
             <p>Longer outputs often feel more considered, but visible detail and internal reasoning are different controls. Grade correctness, coverage, evidence, and downstream success. Otherwise an evaluation may reward eloquence rather than problem solving.</p>
 
-            <h3>Changing the prompt and effort together</h3>
+            <h3>3. Changing the prompt and effort together</h3>
             <p>If a test rewrites the prompt, changes the tool set, and raises effort at the same time, it cannot show which change produced the result. Establish a baseline and sweep one variable at a time before testing interactions.</p>
 
-            <h3>Ignoring incomplete responses</h3>
+            <h3>4. Ignoring incomplete responses</h3>
             <p>Reasoning can consume the output envelope before a useful answer appears. Check the response status, log the incomplete reason, and decide whether the application should retry with a larger limit, lower effort, or a simpler task.</p>
 
-            <h3>Treating labels as portable</h3>
+            <h3>5. Treating labels as portable</h3>
             <p>“Medium” is not a standardized quantity. Different models can use different amounts of computation, adapt differently to the prompt, or support different levels entirely. Recalibrate whenever the model or provider changes.</p>
           </section>
 
@@ -501,6 +525,19 @@ console.log(response.usage.output_tokens_details.reasoning_tokens);</code></pre>
             <p>The likely end state is not “always think harder.” It is an inference market inside each request: several possible reasoning actions compete for a limited budget, and the system spends only while the expected improvement exceeds the marginal cost.</p>
 
             <p>These bets would be wrong if fixed high effort remains Pareto-optimal across diverse production benchmarks, if providers converge on a portable compute unit, or if raw prompt difficulty alone predicts the correct budget without application context. Those are useful failure conditions: they turn a speculative ending into claims the field can actually test.</p>
+          </section>
+
+          <section id="rules" class="article-section">
+            <h2>The rules, for those who skim <a href="#rules" aria-label="Link to The rules, for those who skim">#</a></h2>
+            <ol class="rules-list">
+              <li><strong>Default to the lowest effort that clears the quality bar.</strong> Not the lowest that "usually looks fine" — the lowest that your evaluations say is reliable.</li>
+              <li><strong>Treat the setting as task-specific, not global.</strong> Classification and extraction at low. Multi-step reasoning at medium. Irreversible decisions at high. Never one level for everything.</li>
+              <li><strong>Start low, escalate on evidence.</strong> Run cheap, validate, retry at higher effort only on failure. This beats any fixed level on cost per successful task — when validation is reliable.</li>
+              <li><strong>Measure the frontier, not a winner.</strong> You're looking for configurations on the quality-latency-cost Pareto frontier for your workload. There is no globally best level.</li>
+              <li><strong>Log the native setting, not the gateway label.</strong> "Medium" is not portable across providers. Record model version, provider-native effort, token usage, latency, and validator result.</li>
+              <li><strong>Higher effort can make things worse.</strong> The model may overcomplicate a direct question, hallucinate edge cases, or spend its budget on an unproductive line of reasoning. More is not always better.</li>
+              <li><strong>Re-evaluate after any change.</strong> New model version, new prompt, new tool set — recalibrate. Yesterday's sweet spot is today's guess.</li>
+            </ol>
           </section>
 
           <section id="closing" class="article-section closing">
@@ -570,7 +607,12 @@ console.log(response.usage.output_tokens_details.reasoning_tokens);</code></pre>
     </main>
 
     <footer class="site-footer">
-      <a href="#top">Back to top ↑</a>
+      <div class="footer-discuss">
+        <span>Discuss on:</span>
+        <a href="#" class="discuss-link" data-platform="hn">Hacker News</a>
+        <a href="#" class="discuss-link" data-platform="reddit">Reddit</a>
+      </div>
+      <a href="#top">Back to top &uarr;</a>
     </footer>
   </body>
 </html>

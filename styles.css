@@ -5,11 +5,41 @@
   --faint: #a09b96;
   --rule: #ddd9d3;
   --accent: #3156c8;
+  --accent-hover: #1f3e9a;
   --note: #f4f3ef;
   --code: #f3f5f7;
+  --selection: #dfe6ff;
   --serif: "Source Serif 4", "Iowan Old Style", Georgia, serif;
   --sans: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --mono: "IBM Plex Mono", Consolas, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #1a1a1a;
+    --ink: #e8e6e3;
+    --muted: #9e9a96;
+    --faint: #6b6763;
+    --rule: #333130;
+    --accent: #6b8cff;
+    --accent-hover: #8fa8ff;
+    --note: #242220;
+    --code: #1f1f1f;
+    --selection: #2a3a5e;
+  }
+}
+
+:root[data-theme="dark"] {
+  --paper: #1a1a1a;
+  --ink: #e8e6e3;
+  --muted: #9e9a96;
+  --faint: #6b6763;
+  --rule: #333130;
+  --accent: #6b8cff;
+  --accent-hover: #8fa8ff;
+  --note: #242220;
+  --code: #1f1f1f;
+  --selection: #2a3a5e;
 }
 
 * {
@@ -33,7 +63,7 @@ body {
 
 ::selection {
   color: var(--ink);
-  background: #dfe6ff;
+  background: var(--selection);
 }
 
 a {
@@ -43,7 +73,7 @@ a {
 }
 
 a:hover {
-  color: #1f3e9a;
+  color: var(--accent-hover);
 }
 
 button,
@@ -108,12 +138,58 @@ summary:focus-visible,
   line-height: 1.12;
 }
 
+.article-meta {
+  margin-bottom: 1.4rem;
+  color: var(--muted);
+  font-family: var(--sans);
+  font-size: 0.78rem;
+  letter-spacing: 0.02em;
+}
+
+.meta-sep {
+  margin: 0 0.4rem;
+}
+
 .subtitle {
   max-width: 650px;
   margin: 1.4rem auto 1.6rem;
-  color: #4f4b48;
+  color: var(--muted);
   font-size: 1.2rem;
   line-height: 1.5;
+}
+
+.tldr {
+  width: min(660px, calc(100% - 3rem));
+  margin: 0 auto 4rem;
+  padding: 1.5rem 1.8rem;
+  border: 2px solid var(--accent);
+  border-radius: 4px;
+  background: var(--note);
+}
+
+.tldr h2 {
+  margin: 0 0 0.8rem;
+  font-family: var(--sans);
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.tldr ul {
+  margin: 0;
+  padding-left: 1.2rem;
+  font-size: 0.92rem;
+  line-height: 1.6;
+}
+
+.tldr li {
+  margin-bottom: 0.7rem;
+}
+
+.tldr li:last-child {
+  margin-bottom: 0;
 }
 
 .article-shell {
@@ -426,11 +502,39 @@ pre {
   color: #604a9b;
 }
 
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .kw { color: #d98da6; }
+  :root:not([data-theme="light"]) .str { color: #6bc4a8; }
+  :root:not([data-theme="light"]) .num { color: #6b8cff; }
+  :root:not([data-theme="light"]) .key { color: #b199d6; }
+  :root:not([data-theme="light"]) code { border-color: #3a3a3a; }
+  :root:not([data-theme="light"]) .copy-button { border-color: #555; background: var(--code); }
+  :root:not([data-theme="light"]) .copy-button:hover { color: var(--ink); border-color: var(--ink); }
+}
+
+:root[data-theme="dark"] .kw { color: #d98da6; }
+:root[data-theme="dark"] .str { color: #6bc4a8; }
+:root[data-theme="dark"] .num { color: #6b8cff; }
+:root[data-theme="dark"] .key { color: #b199d6; }
+:root[data-theme="dark"] code { border-color: #3a3a3a; }
+:root[data-theme="dark"] .copy-button { border-color: #555; background: var(--code); }
+:root[data-theme="dark"] .copy-button:hover { color: var(--ink); border-color: var(--ink); }
+
 .caption {
   margin-top: -1.4rem;
   color: var(--muted);
   font-size: 0.8rem;
   font-style: italic;
+}
+
+.rules-list li {
+  margin-bottom: 0.9rem;
+  line-height: 1.55;
+}
+
+.key-number {
+  border-left-color: var(--accent);
+  background: var(--note);
 }
 
 .closing {
@@ -466,18 +570,36 @@ pre {
 
 .site-footer {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
   align-items: center;
   padding: 2rem max(1.5rem, calc((100vw - 1180px) / 2));
   border-top: 1px solid var(--rule);
   color: var(--muted);
   font-family: var(--sans);
-  font-size: 0.72rem;
+  font-size: 0.78rem;
 }
 
 .site-footer a {
   color: var(--muted);
   text-decoration: none;
+}
+
+.footer-discuss {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.discuss-link {
+  padding: 0.3rem 0.6rem;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  font-size: 0.72rem;
+}
+
+.discuss-link:hover {
+  color: var(--accent);
+  border-color: var(--accent);
 }
 
 @media (max-width: 900px) {
@@ -536,6 +658,11 @@ pre {
     font-size: 1.05rem;
   }
 
+  .tldr {
+    width: calc(100% - 2rem);
+    padding: 1.2rem 1.3rem;
+  }
+
   .article-shell {
     width: calc(100% - 2rem);
     padding-bottom: 5rem;
@@ -572,6 +699,8 @@ pre {
   }
 
   .site-footer {
+    flex-direction: column-reverse;
+    gap: 1rem;
     padding: 1.5rem 1rem;
   }
 
