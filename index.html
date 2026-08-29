@@ -81,7 +81,7 @@
 
         <article id="article">
           <section id=”introduction” class=”article-section introduction”>
-            <p>An engineer opens an LLM console, sees a selector labeled <em>low</em>, <em>medium</em>, or <em>high</em>, and moves it to the right because it looks like a quality dial. The invoice extraction that ran fine at low effort now takes 8x longer and returns the same answer. The agent that routes every request through high-effort reasoning burns through its token budget on tasks that have one obvious solution path. The bill doubles; the output doesn't improve.</p>
+            <p>An engineer opens an LLM console, sees a selector labeled <em>low</em>, <em>medium</em>, or <em>high</em>, and moves it to the right because it looks like a quality dial. The invoice extraction that ran fine at low effort now takes significantly longer and returns the same answer. The agent that routes every request through high-effort reasoning burns through its token budget on tasks that have one obvious solution path. The bill grows; the output doesn't improve.</p>
 
             <p>This is the default failure mode. Reasoning effort is not a quality dial. It is an inference-time compute policy — and like any resource allocation, it can be wasted.</p>
 
@@ -479,10 +479,19 @@ console.log(response.usage.output_tokens_details.reasoning_tokens);</code></pre>
               <li>Log the model, effort, usage, latency, router reason, and validator result.</li>
               <li>Re-run evaluations after model, prompt, tool, or schema changes.</li>
             </ul>
+
+            <h3>Effort changes invalidate prompt caches</h3>
+            <p>Prompt caching lets a provider skip reprocessing the unchanged prefix of a conversation, saving both cost and latency. But on at least one major provider, the effort configuration is rendered into the prompt itself. Anthropic documents this explicitly: "the resolved effort value is rendered into the prompt, so changing it between requests invalidates cache breakpoints."<sup><a href="#ref-4">4</a></sup></p>
+
+            <p>This creates a tension with adaptive effort routing. If your harness changes effort from one turn to the next—following the "start low, escalate on evidence" pattern—each change can break the cache for the entire conversation prefix. On a long multi-turn conversation, the cost of re-processing the prefix can exceed the savings from lower effort on any single turn.</p>
+
+            <p>The practical guidance from Anthropic's documentation: pick a thinking configuration and an effort level per conversation and keep them. If some turns need more or less thinking, steer with per-message prompting—guidance appended to the newest user message—rather than changing the configuration. Appended guidance leaves earlier cache breakpoints intact; a configuration change does not.</p>
+
+            <p>This trade-off is provider-specific and may not apply to every API. But it illustrates a general principle: effort routing interacts with the serving stack in ways that cost measurement alone does not capture. A harness that changes effort per call should measure effective cache-hit rates and total billed input tokens, not only the reasoning-token delta.</p>
           </section>
 
           <section id="failure-modes" class="article-section">
-            <h2>Five ways teams waste money on reasoning <a href="#failure-modes" aria-label="Link to Five ways teams waste money on reasoning">#</a></h2>
+            <h2>Six ways teams waste money on reasoning <a href="#failure-modes" aria-label="Link to Six ways teams waste money on reasoning">#</a></h2>
 
             <h3>1. Defaulting every request to high</h3>
             <p>This is operationally simple but usually inefficient. Routine work absorbs extra latency and cost, while difficult work still lacks a task-specific success criterion. A global high setting can conceal poor routing and weak evaluation rather than solve them.</p>
@@ -497,7 +506,10 @@ console.log(response.usage.output_tokens_details.reasoning_tokens);</code></pre>
             <p>Reasoning can consume the output envelope before a useful answer appears. Check the response status, log the incomplete reason, and decide whether the application should retry with a larger limit, lower effort, or a simpler task.</p>
 
             <h3>5. Treating labels as portable</h3>
-            <p>“Medium” is not a standardized quantity. Different models can use different amounts of computation, adapt differently to the prompt, or support different levels entirely. Recalibrate whenever the model or provider changes.</p>
+            <p>”Medium” is not a standardized quantity. Different models can use different amounts of computation, adapt differently to the prompt, or support different levels entirely. Recalibrate whenever the model or provider changes.</p>
+
+            <h3>6. Breaking prompt caches with per-turn effort changes</h3>
+            <p>Adaptive routing that changes effort every turn sounds efficient but can destroy prompt-cache hits. On providers where effort is part of the cached prefix, each change forces full re-processing of the conversation history. Measure total billed input tokens across a session, not just reasoning tokens per call.</p>
           </section>
 
           <section id="future" class="article-section">
@@ -581,7 +593,7 @@ console.log(response.usage.output_tokens_details.reasoning_tokens);</code></pre>
             <ol start="18">
               <li id="ref-18">Sebastian Raschka, <a href="https://magazine.sebastianraschka.com/p/controlling-reasoning-effort-in-llms">“Controlling Reasoning Effort in LLMs”</a> — a detailed coverage baseline for training recipes and open-weight implementations.</li>
               <li id="ref-19">Z.ai, <a href="https://z.ai/blog/glm-5.3-flash">“GLM-5.3-Flash: Frontier Intelligence, Flash Cost”</a> — the latest Flash release and its measured behavior across effort levels.</li>
-              <li id="ref-20">Moonshot AI, <a href="https://arxiv.org/abs/2602.02276">“Kimi K2.5: Visual Agentic Intelligence”</a> — Token-Efficient RL and its alternating budgeted and unconstrained training phases.</li>
+              <li id=”ref-20”>Moonshot AI, <a href=”https://arxiv.org/abs/2602.02276”>”Kimi K2.5: Visual Agentic Intelligence”</a> — a multimodal agentic model report that includes the Token-Efficient RL (Toggle) method for controlling reasoning length via alternating budgeted and unconstrained training phases.</li>
               <li id="ref-21">xAI, <a href="https://docs.x.ai/developers/model-capabilities/text/reasoning">“Reasoning”</a> — Grok 4.6 effort levels, encrypted reasoning continuity, and the different semantics of effort on the multi-agent model.</li>
               <li id="ref-22">Qwen, <a href="https://github.com/QwenLM/Qwen3.8">“Qwen3.8”</a> — the latest open-model series, explicit reasoning effort, and preserved thinking.</li>
             </ol>
