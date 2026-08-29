@@ -83,17 +83,9 @@
           <section id=”introduction” class=”article-section introduction”>
             <p>An engineer opens an LLM console, sees a selector labeled <em>low</em>, <em>medium</em>, or <em>high</em>, and moves it to the right because it looks like a quality dial. The invoice extraction that ran fine at low effort now takes significantly longer and returns the same answer. The agent that routes every request through high-effort reasoning burns through its token budget on tasks that have one obvious solution path. The bill grows; the output doesn't improve.</p>
 
-            <p>This is the default failure mode. Reasoning effort is not a quality dial. It is an inference-time compute policy — and like any resource allocation, it can be wasted.</p>
-
             <p>A few years ago, developers tried to elicit reasoning by writing “think step by step,” supplying worked examples, or sampling several answers and voting. Then models were trained to produce useful intermediate work. Providers began charging for hidden reasoning tokens. Open-weight releases exposed the training recipes. Agent harnesses learned to vary the budget from one step to the next. What began as a prompting trick became a layer of inference infrastructure that most teams are using wrong.</p>
 
-            <p>Consider two requests. The first asks a model to extract an invoice number from a well-formed document. The second asks it to review a database migration for failure modes that could cause data loss. Extraction mostly requires recognizing a value and returning it in the requested schema. The migration review requires the model to reconstruct a plan, follow dependencies, imagine partial failures, compare alternatives, and check whether its own conclusions are supported.</p>
-
-            <p>These tasks should not receive the same inference budget. Reasoning effort is best understood as a model-specific policy that influences how much computational work the model applies while producing a response. Lower effort favors a direct path. Higher effort allows a longer or more thorough internal trajectory: planning, exploring alternatives, checking intermediate results, and recovering from a bad approach.</p>
-
-            <p>That allowance is not equivalent to giving the model a fixed amount of extra wall-clock time. It commonly results in more generated reasoning tokens and therefore more latency, but the mapping is adaptive: the same setting can consume very different token counts and durations on two prompts. Extra effort creates an opportunity to do useful work; it does not reserve a precise number of seconds or guarantee a correct answer.</p>
-
-            <p class="thesis">Reasoning effort is not an intelligence slider. It is an inference-time compute policy — and the right default is the lowest level that makes the system work reliably.</p>
+            <p class=”thesis”>Reasoning effort is not an intelligence slider. It is an inference-time compute policy — and the right default is the lowest level that makes the system work reliably.</p>
 
             <p>To understand what the selector means—and why providers and agent harnesses cannot simply hide it forever—we need to follow the path by which reasoning became something engineers could budget.</p>
           </section>
@@ -117,9 +109,7 @@
             <p>This changed the engineering question. Developers no longer asked only, “How should I prompt the model to reason?” They also had to ask, “How much invisible generation should this request be allowed to consume, how do I measure it, and when does the extra latency pay off?”</p>
 
             <h3>January 2025: open weights exposed the recipe</h3>
-            <p>DeepSeek-R1 made the training story inspectable. R1-Zero applied large-scale reinforcement learning before supervised fine-tuning and developed longer reasoning, reflection, and self-correction. The full R1 pipeline added cold-start data and further training for readability and general usefulness, then distilled the behavior into smaller models. The release turned techniques that had largely been inferred from closed systems into code, weights, and a detailed report.<sup><a href="#ref-8">8</a></sup></p>
-
-            <p>That openness also demystified the interface. A <code>&lt;think&gt;</code> block was not a symbolic theorem prover hidden inside the transformer. It was an autoregressively generated scratch space, learned through training and given special treatment by the prompt template and serving stack.</p>
+            <p>DeepSeek-R1 made the training story inspectable. R1-Zero applied large-scale reinforcement learning before supervised fine-tuning and developed longer reasoning, reflection, and self-correction. The full R1 pipeline added cold-start data, further training for general usefulness, and distillation into smaller models. The release turned techniques that had largely been inferred from closed systems into code, weights, and a detailed report.<sup><a href="#ref-8">8</a></sup></p>
 
             <h3>2025: reasoning became configurable</h3>
             <p>Once reasoning was a model behavior, providers began turning it into a family of controls. Qwen3 offered hybrid thinking and non-thinking modes. OpenAI’s gpt-oss encoded low, medium, and high effort in the Harmony prompt protocol. Hosted APIs exposed qualitative levels, numeric budgets, or adaptive modes. Gateways such as OpenRouter normalized the wire format, while hosts such as Baseten surfaced the native semantics of individual open models.<sup><a href="#ref-9">9</a></sup><sup><a href="#ref-10">10</a></sup><sup><a href="#ref-6">6</a></sup><sup><a href="#ref-7">7</a></sup></p>
@@ -140,9 +130,9 @@
             <p>This explains why the effect is uneven. Raising effort for a deterministic format conversion may produce no observable benefit because there is no useful search to perform. Raising it for a subtle concurrency bug may let the model trace an execution order it would otherwise miss. The control is valuable when the task has branches, dependencies, ambiguity, or a need for verification.</p>
 
             <h3>More opportunity is not always more value</h3>
-            <p>Additional reasoning has diminishing returns. At some point the model has already found the relevant approach, and more work only repeats or elaborates it. In other cases, a weak premise cannot be repaired with additional computation: the model is missing necessary context, lacks an appropriate tool, or has been asked an ambiguous question. Effort cannot substitute for information.</p>
+            <p>Additional reasoning has diminishing returns. At some point the model has already found the relevant approach, and more work only repeats or elaborates it. Effort also cannot substitute for missing information: a model without the right context or tool will not reason its way out of that gap.</p>
 
-            <p>Higher effort can also make a response worse in ways that are hard to notice. The model may overcomplicate a direct question, invent edge cases that are not material, or spend its output budget on an unproductive line of reasoning. Treat effort as a resource allocation decision, not a one-way quality upgrade.</p>
+            <p>Higher effort can also make a response worse. The model may overcomplicate a direct question, invent immaterial edge cases, or spend its output budget on an unproductive line of reasoning. Treat effort as a resource allocation decision, not a one-way quality upgrade.</p>
           </section>
 
           <section id="reasoning-tokens" class="article-section">
@@ -275,9 +265,7 @@ console.log(response.usage.output_tokens_details.reasoning_tokens);</code></pre>
             <p>A longer single reasoning trace is only one form of inference scaling. A harness can sample several independent solutions and select by majority vote or a verifier, ask the model to critique and revise an answer, search a tree of candidate steps, or use several agents and synthesize their results. These methods spend compute across trajectories rather than only extending one trajectory. They can outperform “turn effort to max,” but they also add orchestration cost and need a trustworthy selection signal.</p>
 
             <h3>How models learn controllable effort</h3>
-            <p>DeepSeek-R1 popularized reinforcement learning with verifiable rewards: for domains such as math or code, a checker can reward a correct final answer without requiring a human-written reasoning trace. The model can learn longer scratch work, backtracking, and self-correction because those behaviors increase the probability of receiving the outcome reward. A separate format reward can encourage a parseable reasoning channel.<sup><a href="#ref-8">8</a></sup></p>
-
-            <p>The literal <code>&lt;think&gt;</code> tags do not create the capability. They are delimiters that let a tokenizer, trainer, server, or UI separate an intermediate trace from the answer. Another channel marker could serve the same purpose. The capability comes from pretraining and post-training; the delimiter makes the protocol operable.</p>
+            <p>DeepSeek-R1 popularized reinforcement learning with verifiable rewards: for domains such as math or code, a checker can reward a correct final answer without requiring a human-written reasoning trace. The model learns longer scratch work, backtracking, and self-correction because those behaviors increase the probability of receiving the outcome reward. The literal <code>&lt;think&gt;</code> tags are just delimiters — the capability comes from training; the delimiter makes the protocol operable.<sup><a href="#ref-8">8</a></sup></p>
 
             <p>Current open-weight reports disclose four recurring ways to make effort controllable:</p>
             <ol>
@@ -289,10 +277,8 @@ console.log(response.usage.output_tokens_details.reasoning_tokens);</code></pre>
 
             <p>A plain-language system instruction works only when post-training has taught the model to interpret it. Adding “reason at maximum effort” to an arbitrary instruct model may change its prose, but it does not manufacture a calibrated effort mode.</p>
 
-            <h3>DeepSeek-R1: behavior learned through reinforcement learning</h3>
-            <p>DeepSeek-R1-Zero started from a base model and used large-scale reinforcement learning without a supervised fine-tuning stage first. The reported behavior included longer reasoning, self-verification, reflection, and strategy changes as training progressed. DeepSeek-R1 then added cold-start supervised data before further reinforcement learning, followed by supervised and reinforcement-learning stages aimed at both reasoning and general usefulness. The project also distilled reasoning behavior into smaller Qwen and Llama checkpoints.<sup><a href="#ref-8">8</a></sup></p>
-
-            <p>At inference time, the familiar <code>&lt;think&gt;...&lt;/think&gt;</code> structure is simply generated text with special semantics in the chat template and parser. The reasoning trace consumes output tokens before the final answer. A host can cap total generation, stop or hide the reasoning segment, or retain it for the next turn. Those choices affect cost and behavior even though none changes the trained weights.</p>
+            <h3>DeepSeek-R1: what inference looks like</h3>
+            <p>At inference time, R1's <code>&lt;think&gt;...&lt;/think&gt;</code> structure is simply generated text with special semantics in the chat template and parser. The reasoning trace consumes output tokens before the final answer. A host can cap total generation, stop or hide the reasoning segment, or retain it for the next turn. Those choices affect cost and behavior even though none changes the trained weights.<sup><a href="#ref-8">8</a></sup></p>
 
             <h3>Qwen3: one checkpoint, two modes</h3>
             <p>Qwen3 was trained for hybrid thinking and non-thinking behavior. Its official Transformers instructions enable thinking by default and allow a hard switch through <code>enable_thinking=False</code>; when thinking is enabled, <code>/think</code> and <code>/no_think</code> can steer individual turns. The chat template renders the appropriate prefix and the generated reasoning is parsed away from the final answer.<sup><a href="#ref-9">9</a></sup></p>
@@ -378,11 +364,6 @@ console.log(response.usage.output_tokens_details.reasoning_tokens);</code></pre>
 
             <p>This policy is deliberately legible. A learned router may eventually outperform it, but explicit rules are easier to audit while the workload is young. Log the rule that fired, the provider-native request, total run budget before and after the call, and the validation outcome. That record turns “the agent thought too much” into a debuggable system event.</p>
 
-            <h3>Planning and acting deserve different budgets</h3>
-            <p>A common harness pattern spends more reasoning on decisions that shape many downstream actions and less on repetitive execution. A research agent might reason deeply about a search plan, use low effort to issue independent queries, then raise effort again to reconcile conflicting evidence. A coding agent might use high effort for architecture and review, but low effort for mechanical edits that are guarded by tests.</p>
-
-            <p>The opposite pattern is also valid. A cheap model can route a request to a specialist, while the specialist receives a larger reasoning envelope. What matters is the blast radius of the decision, the availability of feedback, and whether a later step can cheaply repair an earlier mistake.</p>
-
             <h3>Reasoning state is part of agent state</h3>
             <p>Some providers return reasoning summaries, encrypted reasoning items, signed thinking blocks, or plain reasoning text. Their continuation rules differ. The harness must preserve the structures required for tool-use continuity and multi-turn reasoning while still avoiding accidental disclosure in logs or user-visible messages. Treat reasoning state as typed protocol data, not as an ordinary assistant string.</p>
           </section>
@@ -433,8 +414,6 @@ console.log(response.usage.output_tokens_details.reasoning_tokens);</code></pre>
 
             <p>The result is a useful case study of what an agent harness contributes: the model adapts within one call, but the harness observes an external test result and reallocates budget across calls. It also exposes the boundary conditions. The measurement was vendor-run on a private subset and is not comparable to the public SWE-bench leaderboard. It works because tests provide a reliable failure signal, and failed tasks pay for two attempts and therefore take longer.</p>
 
-            <aside class="article-note"><strong>Read the numbers as evidence for a pattern, not as portable pricing.</strong> The independent studies use mathematical and scientific tasks; the harness example uses checkable code tasks and vendor models. Together they support adaptive allocation, but they do not establish one universal effort level.</aside>
-
             <h3>What these results establish</h3>
             <ol>
               <li>Additional inference compute can improve accuracy when the model has a viable solution path.</li>
@@ -443,7 +422,7 @@ console.log(response.usage.output_tokens_details.reasoning_tokens);</code></pre>
               <li>When outcomes are cheaply verifiable, low-first escalation can beat any fixed setting on cost per successful task.</li>
             </ol>
 
-            <p>These findings are enough to reject “always high” and “always low” as general policies. They cannot choose a default for every unseen workload, but they give an engineer a defensible prior: allocate effort adaptively, use external verification when it is trustworthy, and measure success at the level of the complete task rather than one model call.</p>
+            <p>These findings reject “always high” and “always low” as general policies. They give an engineer a defensible prior: allocate effort adaptively, use external verification when it is trustworthy, and measure success at the level of the complete task rather than one model call.</p>
           </section>
 
           <section id="production" class="article-section">
@@ -465,10 +444,6 @@ console.log(response.usage.output_tokens_details.reasoning_tokens);</code></pre>
 
             <p>Keep the router explainable and log its decision. Effort is otherwise an invisible variable during incident analysis: two apparently identical requests may have taken different paths for reasons nobody can reconstruct. A small set of named routing rules is often more useful than an opaque difficulty classifier, especially early in a product’s life.</p>
 
-            <p>One practical pattern is to start low and escalate on evidence. Run a cheaper attempt, apply a validator, and retry at higher effort only when a concrete failure is detected. This works well when validation is reliable and inexpensive. It works poorly when a wrong answer can pass the validator, so the pattern must be matched to the task.</p>
-
-            <p>A second pattern separates planning from execution. An agent can use higher effort to form and review a plan, then use lower effort for repetitive steps with clear inputs and outputs. The reverse can also be appropriate: a cheap router can identify the task, while a high-effort specialist handles the difficult core.</p>
-
             <p>The deepest settings belong naturally in asynchronous paths. Give them explicit token and wall-clock budgets, handle incomplete responses, and surface progress separately from the final answer. An interactive request should not silently turn into a multi-minute run because a router overestimated its difficulty.</p>
 
             <h3>Production guardrails</h3>
@@ -481,13 +456,11 @@ console.log(response.usage.output_tokens_details.reasoning_tokens);</code></pre>
             </ul>
 
             <h3>Effort changes invalidate prompt caches</h3>
-            <p>Prompt caching lets a provider skip reprocessing the unchanged prefix of a conversation, saving both cost and latency. But on at least one major provider, the effort configuration is rendered into the prompt itself. Anthropic documents this explicitly: "the resolved effort value is rendered into the prompt, so changing it between requests invalidates cache breakpoints."<sup><a href="#ref-4">4</a></sup></p>
+            <p>Prompt caching lets a provider skip reprocessing the unchanged prefix of a conversation. But on at least one major provider, the effort configuration is rendered into the prompt itself. Anthropic documents this explicitly: "the resolved effort value is rendered into the prompt, so changing it between requests invalidates cache breakpoints."<sup><a href="#ref-4">4</a></sup></p>
 
-            <p>This creates a tension with adaptive effort routing. If your harness changes effort from one turn to the next—following the "start low, escalate on evidence" pattern—each change can break the cache for the entire conversation prefix. On a long multi-turn conversation, the cost of re-processing the prefix can exceed the savings from lower effort on any single turn.</p>
+            <p>This creates a tension with adaptive routing. If your harness changes effort between turns, each change can break the cache for the entire conversation prefix. On a long multi-turn conversation, re-processing the prefix can exceed the savings from lower effort on any single turn.</p>
 
-            <p>The practical guidance from Anthropic's documentation: pick a thinking configuration and an effort level per conversation and keep them. If some turns need more or less thinking, steer with per-message prompting—guidance appended to the newest user message—rather than changing the configuration. Appended guidance leaves earlier cache breakpoints intact; a configuration change does not.</p>
-
-            <p>This trade-off is provider-specific and may not apply to every API. But it illustrates a general principle: effort routing interacts with the serving stack in ways that cost measurement alone does not capture. A harness that changes effort per call should measure effective cache-hit rates and total billed input tokens, not only the reasoning-token delta.</p>
+            <p>The workaround: pick one effort level per conversation and steer individual turns with per-message prompting — guidance appended to the newest user message leaves earlier cache breakpoints intact, where a configuration change does not. This is provider-specific, but the general principle applies: a harness that changes effort per call should measure effective cache-hit rates and total billed input tokens, not only the reasoning-token delta.</p>
           </section>
 
           <section id="failure-modes" class="article-section">
@@ -503,7 +476,7 @@ console.log(response.usage.output_tokens_details.reasoning_tokens);</code></pre>
             <p>If a test rewrites the prompt, changes the tool set, and raises effort at the same time, it cannot show which change produced the result. Establish a baseline and sweep one variable at a time before testing interactions.</p>
 
             <h3>4. Ignoring incomplete responses</h3>
-            <p>Reasoning can consume the output envelope before a useful answer appears. Check the response status, log the incomplete reason, and decide whether the application should retry with a larger limit, lower effort, or a simpler task.</p>
+            <p>Check the response status. When reasoning consumes the output envelope, retry with a larger limit, lower effort, or a simpler task — don't present a truncated answer.</p>
 
             <h3>5. Treating labels as portable</h3>
             <p>”Medium” is not a standardized quantity. Different models can use different amounts of computation, adapt differently to the prompt, or support different levels entirely. Recalibrate whenever the model or provider changes.</p>
@@ -532,7 +505,7 @@ console.log(response.usage.output_tokens_details.reasoning_tokens);</code></pre>
             <p>More inference does not have to mean a longer monologue. A future allocator may choose between extending one trace, asking a verifier, sampling alternatives, running a specialist, or creating a small team of agents. The important quantity will be total system compute per successful outcome, including tools and retries—not the token count of one response.</p>
 
             <h3>Bet 5 — automatic effort improves, but budget ownership stays outside the model</h3>
-            <p>Providers will get better at estimating prompt difficulty, and harnesses will learn from validation and production outcomes. Yet neither can infer every business constraint from text. The model does not know the true cost of a bad migration unless the system tells it; the provider does not own the application’s latency promise; a learned router cannot approve an irreversible action merely because it is confident. Automation can allocate the envelope. Product and engineering teams still define it.</p>
+            <p>Providers will get better at estimating prompt difficulty, and harnesses will learn from validation and production outcomes. Yet neither can infer every business constraint from text. A latency promise, a compliance gate, a cost ceiling that depends on the customer tier — those are application facts invisible to the model. Automation can allocate the envelope. Product and engineering teams still define it.</p>
 
             <p>The likely end state is not “always think harder.” It is an inference market inside each request: several possible reasoning actions compete for a limited budget, and the system spends only while the expected improvement exceeds the marginal cost.</p>
 
@@ -555,11 +528,9 @@ console.log(response.usage.output_tokens_details.reasoning_tokens);</code></pre>
           <section id="closing" class="article-section closing">
             <h2>Closing thoughts <a href="#closing" aria-label="Link to Closing thoughts">#</a></h2>
 
-            <p>Reasoning effort gives an application a way to buy more inference-time work without changing the underlying model. That makes it powerful, but also easy to misuse. The setting is one part of a system that includes the prompt, context, tools, validators, latency budget, and the cost of being wrong.</p>
+            <p>Buy reasoning where it changes the outcome. Start from a measured baseline, increase effort for tasks that benefit, and keep the higher level only when its gains survive a fair comparison with latency and cost.</p>
 
-            <p>The practical rule is simple: buy reasoning where it changes the outcome. Start from a measured baseline, increase effort for tasks that can use it, and keep the higher level only when its quality gains survive a fair comparison with latency and cost.</p>
-
-            <p>In other words, the right default is not the setting that makes the model think the most. It is the lowest setting that makes the system work reliably.</p>
+            <p>The right default is not the setting that makes the model think the most. It is the lowest setting that makes the system work reliably.</p>
           </section>
 
           <section id="sources" class="sources">
