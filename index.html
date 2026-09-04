@@ -25,9 +25,9 @@
     <main id="top">
       <header class="article-header">
         <div class="article-meta">
-          <time datetime="2026-08-29">29 August 2026</time>
+          <time datetime="2026-09-04">4 September 2026</time>
           <span class="meta-sep">&middot;</span>
-          <span>25 min read</span>
+          <span>28 min read</span>
         </div>
         <h1>Reasoning effort is not an intelligence slider</h1>
         <p class="subtitle">It's an inference-time compute policy. Here's the engineering story: what the setting actually controls, where the tokens go, and why "just turn it to max" is almost always wrong.</p>
@@ -41,6 +41,7 @@
           <li><strong>The labels aren't portable.</strong> "Medium" on OpenAI, Anthropic, Gemini, and xAI all mean different things. Code should validate per model and log the native setting actually sent.</li>
           <li><strong>Start low, escalate on evidence.</strong> Anthropic's own published experiment: low effort first, retry failures at default effort → 93% pass rate for $0.70/task vs. 91.7% for $1.39/task with uniform default. That's the same quality for half the cost.</li>
           <li><strong>The right default isn't the setting that makes the model think the most.</strong> It's the lowest setting that makes the system work reliably.</li>
+          <li><strong>Effort just became mutable runtime state on some providers.</strong> Since early September 2026, GPT-6 Astra's <code>configuration_update</code> event and Claude's per-message <code>output_config.effort</code> can raise or lower reasoning depth mid-conversation without invalidating the cached prefix. Most other models still can't — changing effort still means reprocessing the whole conversation.</li>
         </ul>
       </div>
 
@@ -54,6 +55,7 @@
             <a href="#api">Provider APIs</a>
             <a href="#open-weights">Open-weight models</a>
             <a href="#automatic-effort">Automatic effort and agents</a>
+            <a href="#cache-control">Cache-preserving effort</a>
             <a href="#choosing">Choosing and evaluating</a>
             <a href="#production">Production routing</a>
             <a href="#future">What comes next</a>
@@ -71,6 +73,7 @@
             <a href="#api">Provider APIs</a>
             <a href="#open-weights">Open-weight models</a>
             <a href="#automatic-effort">Automatic effort and agents</a>
+            <a href="#cache-control">Cache-preserving effort</a>
             <a href="#choosing">Choosing and evaluating</a>
             <a href="#production">Production routing</a>
             <a href="#future">What comes next</a>
@@ -80,12 +83,12 @@
         </details>
 
         <article id="article">
-          <section id=”introduction” class=”article-section introduction”>
+          <section id="introduction" class="article-section introduction">
             <p>An engineer opens an LLM console, sees a selector labeled <em>low</em>, <em>medium</em>, or <em>high</em>, and moves it to the right because it looks like a quality dial. The invoice extraction that ran fine at low effort now takes significantly longer and returns the same answer. The agent that routes every request through high-effort reasoning burns through its token budget on tasks that have one obvious solution path. The bill grows; the output doesn't improve.</p>
 
             <p>A few years ago, developers tried to elicit reasoning by writing “think step by step,” supplying worked examples, or sampling several answers and voting. Then models were trained to produce useful intermediate work. Providers began charging for hidden reasoning tokens. Open-weight releases exposed the training recipes. Agent harnesses learned to vary the budget from one step to the next. What began as a prompting trick became a layer of inference infrastructure that most teams are using wrong.</p>
 
-            <p class=”thesis”>Reasoning effort is not an intelligence slider. It is an inference-time compute policy — and the right default is the lowest level that makes the system work reliably.</p>
+            <p class="thesis">Reasoning effort is not an intelligence slider. It is an inference-time compute policy — and the right default is the lowest level that makes the system work reliably.</p>
 
             <p>To understand what the selector means—and why providers and agent harnesses cannot simply hide it forever—we need to follow the path by which reasoning became something engineers could budget.</p>
           </section>
@@ -368,6 +371,69 @@ console.log(response.usage.output_tokens_details.reasoning_tokens);</code></pre>
             <p>Some providers return reasoning summaries, encrypted reasoning items, signed thinking blocks, or plain reasoning text. Their continuation rules differ. The harness must preserve the structures required for tool-use continuity and multi-turn reasoning while still avoiding accidental disclosure in logs or user-visible messages. Treat reasoning state as typed protocol data, not as an ordinary assistant string.</p>
           </section>
 
+          <section id="cache-control" class="article-section">
+            <h2>Cache-preserving effort switches: an append-only control plane <a href="#cache-control" aria-label="Link to Cache-preserving effort switches">#</a></h2>
+
+            <p>The claim earlier in this piece — that on at least one major provider, effort is rendered into the prompt and so changing it invalidates the cache — was accurate on August 29, 2026. It stopped being fully accurate a few days later. Since September 1, 2026, Claude’s Fable 5.1, Mythos 5.1, and Opus 5 models accept a per-message effort update that changes reasoning depth for the next turn without rewriting anything that came before it. GPT-6 Astra, which followed on September 3, ships a comparable mechanism under a different name. Adoption is still narrow, but the pattern is worth understanding precisely: reasoning effort is starting to become mutable runtime state, appended to a conversation, rather than a value baked into its prefix.</p>
+
+            <p>The mechanical reason this matters: in a causal transformer, the key/value representation of a token depends on every token before it. A serving stack that supports prefix caching stores those tensors so a later request sharing an identical prefix can skip recomputing them. If effort is encoded near the start of the serialized prompt — inside the system message, a settings block, or a text prefix before it — changing effort changes token zero, and the entire downstream cache for that conversation becomes invalid. A cache-friendly design instead appends the change after the history it doesn’t affect. Cache-breaking placement serializes as:</p>
+
+            <pre><code>[effort=low]  [system]  [turn 1]  [turn 2] ...</code></pre>
+
+            <p>while a cache-preserving design appends the change as a later, privileged event instead of rewriting the start of the sequence:</p>
+
+            <pre><code>[system]  [turn 1]  [turn 2]
+[control: effort=high]
+[turn 3] ...</code></pre>
+
+            <p>Everything before the control event stays byte-for-byte unchanged and remains eligible for cache reuse; only the computation for turns after it changes. A model qualifies as cache-preserving on effort only if all five of the following hold: the conversation has an already-cacheable prefix; effort can change for later turns; the earlier serialized prefix is untouched by that change; the serving system can therefore reuse its existing cache; and, ideally, the provider documents the guarantee rather than leaving it to be inferred from behavior. Offering both prompt caching and a <code>reasoning_effort</code> parameter is not sufficient on its own — most current models satisfy neither the third nor the fifth condition.</p>
+
+            <table>
+              <thead><tr><th>Model</th><th>Mechanism</th><th>Cache preserved across an effort change?</th><th>Classification</th></tr></thead>
+              <tbody>
+                <tr><td>GPT-6 Astra</td><td>Appended <code>configuration_update</code> event</td><td>Documented</td><td>Exact</td></tr>
+                <tr><td>Claude Fable 5.1 / Mythos 5.1 / Opus 5</td><td>Per-message effort in an appended system event</td><td>Documented</td><td>Exact</td></tr>
+                <tr><td>Qwen3</td><td><code>/think</code> or <code>/no_think</code> in the latest message</td><td>Yes, by construction, given prefix caching in the serving runtime</td><td>Open-weight analogue</td></tr>
+                <tr><td>Gemini</td><td>Per-request thinking level plus explicit, named cached content</td><td>The stable cached base can be reused; not documented for the full implicit dialogue history</td><td>Economic near-equivalent</td></tr>
+                <tr><td>Grok 4.6</td><td>Top-level effort plus automatic caching</td><td>Not documented across effort changes</td><td>Unconfirmed</td></tr>
+                <tr><td>Kimi K3</td><td>Effort chosen before the conversation starts</td><td>No supported transition</td><td>Not equivalent</td></tr>
+                <tr><td>DeepSeek V4, GLM-5.3, Mistral Small 4, Qwen3.8 (graded template), gpt-oss, MiniMax M3</td><td>Effort encoded in the opening system block or an early prompt prefix</td><td>No</td><td>Cache-breaking</td></tr>
+              </tbody>
+            </table>
+
+            <p>This list is not necessarily exhaustive, and it will age quickly — treat it as a snapshot of the principal frontier and open-weight families as of early September 2026, not a permanent scorecard.</p>
+
+            <h3>GPT-6 Astra: <code>configuration_update</code></h3>
+            <p>Astra introduces <code>configuration_update</code>, an event appended to conversation history that changes reasoning effort for subsequent turns while the earlier prompt prefix stays cache-eligible. It currently changes only reasoning effort, applies from the next user turn until another update overrides it, and works only in the standard single-agent configuration. It cannot currently be combined directly with automatic compaction or truncation — after an explicit compaction, the application must reapply the desired configuration itself, since compaction rewrites the prefix the update was appended to.<sup><a href="#ref-1">1</a></sup><sup><a href="#ref-31">31</a></sup><sup><a href="#ref-32">32</a></sup></p>
+
+            <aside class="article-note"><strong>An observability footgun.</strong> Response metadata can report the request-level effort rather than the effective effort established by an in-history <code>configuration_update</code>. A dashboard that reads only that field will show the wrong effort for every turn after the first update. Log the update event itself, not just the per-response metadata.</aside>
+
+            <h3>Claude: per-message effort</h3>
+            <p>Claude’s Fable 5.1, Mythos 5.1, and Opus 5 models support per-message effort through an appended, empty system message carrying <code>output_config.effort</code>:</p>
+
+            <pre><code>{
+  <span class="key">"role"</span>: <span class="str">"system"</span>,
+  <span class="key">"content"</span>: [],
+  <span class="key">"output_config"</span>: { <span class="key">"effort"</span>: <span class="str">"high"</span> }
+}</code></pre>
+
+            <p>The feature sits behind the beta header <code>mid-conversation-output-config-2026-07-01</code>; the date in a beta header names when the header was registered, not when the capability became generally usable, and public release notes describing the behavior appeared on September 1, 2026, shortly before Astra’s September 3 launch. The new effort applies to the following user turn and persists until overridden; earlier messages remain byte-for-byte unchanged, so the existing cached prefix can still be reused. Changing the traditional top-level <code>effort</code> parameter still restarts the cache — this mechanism is additive, not a replacement for it. Anthropic’s broader direction is append-only changes for system instructions, tool definitions, and turn-scoped instructions as well as output configuration, which is what makes the design relevant to long-running agents beyond effort alone.<sup><a href="#ref-4">4</a></sup><sup><a href="#ref-33">33</a></sup></p>
+
+            <h3>Qwen3: the open-weight precursor</h3>
+            <p>Qwen3’s <code>/think</code> and <code>/no_think</code> steering, already discussed above, is a real open-weight analogue: the model follows the most recent instruction, so if it’s appended to a new message, all prior tokens stay identical and a runtime such as vLLM can reuse the KV cache for that prefix.<sup><a href="#ref-9">9</a></sup><sup><a href="#ref-34">34</a></sup> It is weaker than Astra or Claude’s mechanism in four ways: it is binary rather than graded, natural-language rather than a privileged typed event, potentially imitable by user or retrieved content, and dependent on the serving runtime’s routing, eviction, and serialization rather than a hosted API-level guarantee. Qwen3.8’s newer graded-effort template cuts the other way: it converts effort into an instruction placed in the initial system message, which changes the start of the token sequence and invalidates the cache on every effort change. Preserved thinking across turns — the mid-conversation continuity benefit noted earlier — is a separate property from where the effort selection itself sits in the prompt; finer-grained effort control and cache composability are in tension here, not the same feature.</p>
+
+            <h3>Gemini: a useful near-equivalent</h3>
+            <p>Gemini separates the per-request <code>thinking_level</code> from an explicitly named cached-content object: an application caches a large system prompt, document corpus, or other stable context once, references it in later requests, and varies the thinking level independently. That preserves the economic value of the cached base context and is a strong pattern for RAG and stable-context workloads. It is not the same guarantee as an appended in-conversation control event — Google does not document that changing thinking level mid-conversation preserves the entire accumulated dialogue cache — so treat it as a near-equivalent for stable corpora and inspect <code>total_cached_tokens</code> rather than assume a hit from the request shape.<sup><a href="#ref-5">5</a></sup><sup><a href="#ref-35">35</a></sup></p>
+
+            <h3>Why most models still lose the cache</h3>
+            <p>Official chat templates confirm early, cache-breaking effort placement in DeepSeek V4, GLM-5.3, Mistral Small 4, gpt-oss, and MiniMax M3.<sup><a href="#ref-13">13</a></sup><sup><a href="#ref-16">16</a></sup><sup><a href="#ref-37">37</a></sup><sup><a href="#ref-10">10</a></sup><sup><a href="#ref-38">38</a></sup> Kimi’s documentation goes further and explicitly recommends deciding reasoning effort before the conversation begins rather than changing it mid-run.<sup><a href="#ref-15">15</a></sup> Grok exposes both reasoning effort and prompt caching, but xAI does not document whether cache reuse survives an effort change, which is why it’s classified as unconfirmed rather than cache-breaking.<sup><a href="#ref-21">21</a></sup><sup><a href="#ref-36">36</a></sup></p>
+
+            <h3>The unresolved problem: compaction</h3>
+            <p>An append-only history eventually gets too large and has to be compacted, and compaction rewrites the prefix — which can erase the very control events this design depends on. Astra’s restriction against combining <code>configuration_update</code> with automatic compaction is an honest acknowledgment of that gap rather than an edge case to route around. A complete checkpoint needs to preserve summarized semantic history alongside the effective control state — current reasoning effort, active tools, permissions, response configuration — not just the compressed conversation text. This is the same gap Bet 3, below, is about: reasoning and configuration state is heading toward a typed protocol object, and compaction is the part of that object nobody has fully solved yet.</p>
+
+            <p>Read together, these mechanisms are early pieces of something larger than cheaper caching: an append-only inference control plane, where conversation history stays immutable and cacheable while changes to effort, tools, permissions, or other execution policy arrive as privileged events layered on top instead of prefix rewrites. One consequence worth carrying into the next section: escalating effort later cannot retroactively repair a decision already made under low effort. Raise effort before an irreversible step, or make sure the higher-effort turn explicitly re-examines the earlier conclusion rather than just building on it.</p>
+          </section>
+
           <section id="choosing" class="article-section">
             <h2>Choosing an effort level <a href="#choosing" aria-label="Link to Choosing an effort level">#</a></h2>
 
@@ -455,12 +521,12 @@ console.log(response.usage.output_tokens_details.reasoning_tokens);</code></pre>
               <li>Re-run evaluations after model, prompt, tool, or schema changes.</li>
             </ul>
 
-            <h3>Effort changes invalidate prompt caches</h3>
-            <p>Prompt caching lets a provider skip reprocessing the unchanged prefix of a conversation. But on at least one major provider, the effort configuration is rendered into the prompt itself. Anthropic documents this explicitly: "the resolved effort value is rendered into the prompt, so changing it between requests invalidates cache breakpoints."<sup><a href="#ref-4">4</a></sup></p>
+            <h3>Effort changes invalidate prompt caches — mostly, still</h3>
+            <p>Prompt caching lets a provider skip reprocessing the unchanged prefix of a conversation. On most providers, effort is still rendered into the prompt itself, so changing it between requests invalidates cache breakpoints and forces a full reprocess of the conversation prefix.</p>
 
-            <p>This creates a tension with adaptive routing. If your harness changes effort between turns, each change can break the cache for the entire conversation prefix. On a long multi-turn conversation, re-processing the prefix can exceed the savings from lower effort on any single turn.</p>
+            <p>This creates a tension with adaptive routing. If a harness changes effort between turns, each change can break the cache for the entire conversation prefix. On a long multi-turn conversation, re-processing the prefix can exceed the savings from lower effort on any single turn.</p>
 
-            <p>The workaround: pick one effort level per conversation and steer individual turns with per-message prompting — guidance appended to the newest user message leaves earlier cache breakpoints intact, where a configuration change does not. This is provider-specific, but the general principle applies: a harness that changes effort per call should measure effective cache-hit rates and total billed input tokens, not only the reasoning-token delta.</p>
+            <p>Two of the models covered in this piece — GPT-6 Astra and Claude’s Fable 5.1, Mythos 5.1, and Opus 5 — now avoid this by appending the effort change as a later event instead of rewriting the prefix; see <a href="#cache-control">Cache-preserving effort switches</a> for the mechanism and its limits. Everywhere else, the older workaround still applies: pick one effort level per conversation and steer individual turns with per-message prompting rather than a configuration change, since guidance appended to the newest user message leaves earlier cache breakpoints intact where a top-level effort parameter does not. A harness that changes effort per call should measure effective cache-hit rates and total billed input tokens, not only the reasoning-token delta — and on any provider, model-specific behavior, not the API's appearance.</p>
           </section>
 
           <section id="failure-modes" class="article-section">
@@ -482,7 +548,7 @@ console.log(response.usage.output_tokens_details.reasoning_tokens);</code></pre>
             <p>”Medium” is not a standardized quantity. Different models can use different amounts of computation, adapt differently to the prompt, or support different levels entirely. Recalibrate whenever the model or provider changes.</p>
 
             <h3>6. Breaking prompt caches with per-turn effort changes</h3>
-            <p>Adaptive routing that changes effort every turn sounds efficient but can destroy prompt-cache hits. On providers where effort is part of the cached prefix, each change forces full re-processing of the conversation history. Measure total billed input tokens across a session, not just reasoning tokens per call.</p>
+            <p>Adaptive routing that changes effort every turn sounds efficient but can destroy prompt-cache hits. On providers where effort is part of the cached prefix, each change forces full re-processing of the conversation history. A small number of models now append the change as a later event instead of rewriting the prefix (see <a href="#cache-control">Cache-preserving effort switches</a>), but that is still the exception. Measure total billed input tokens across a session, not just reasoning tokens per call, and don't assume a provider you haven't checked recently still behaves the way it did last quarter.</p>
           </section>
 
           <section id="future" class="article-section">
@@ -500,6 +566,8 @@ console.log(response.usage.output_tokens_details.reasoning_tokens);</code></pre>
 
             <h3>Bet 3 — by 2028, reasoning state becomes a typed protocol object</h3>
             <p>Preserved and interleaved thinking point toward long-running agents that carry structured reasoning state across tools and turns. That state can improve continuity and cache efficiency, but it also creates questions about context growth, privacy, retention, replay, and portability. Harnesses will need typed reasoning-state interfaces in the same way they now need typed tool calls.</p>
+
+            <p>This bet already has an early, narrow data point. GPT-6 Astra's <code>configuration_update</code> and Claude's per-message <code>output_config.effort</code>, both shipped in the first days of September 2026, treat effort as an appended, typed event rather than a prefix rewrite — see <a href="#cache-control">Cache-preserving effort switches</a>. Neither system has solved the harder version of the problem yet: what happens to that appended state when the conversation is compacted. That gap is exactly what this bet is about.</p>
 
             <h3>Bet 4 — the best systems mix several kinds of test-time compute</h3>
             <p>More inference does not have to mean a longer monologue. A future allocator may choose between extending one trace, asking a verifier, sampling alternatives, running a specialist, or creating a small team of agents. The important quantity will be total system compute per successful outcome, including tools and retries—not the token count of one response.</p>
@@ -564,7 +632,7 @@ console.log(response.usage.output_tokens_details.reasoning_tokens);</code></pre>
             <ol start="18">
               <li id="ref-18">Sebastian Raschka, <a href="https://magazine.sebastianraschka.com/p/controlling-reasoning-effort-in-llms">“Controlling Reasoning Effort in LLMs”</a> — a detailed coverage baseline for training recipes and open-weight implementations.</li>
               <li id="ref-19">Z.ai, <a href="https://z.ai/blog/glm-5.3-flash">“GLM-5.3-Flash: Frontier Intelligence, Flash Cost”</a> — the latest Flash release and its measured behavior across effort levels.</li>
-              <li id=”ref-20”>Moonshot AI, <a href=”https://arxiv.org/abs/2602.02276”>”Kimi K2.5: Visual Agentic Intelligence”</a> — a multimodal agentic model report that includes the Token-Efficient RL (Toggle) method for controlling reasoning length via alternating budgeted and unconstrained training phases.</li>
+              <li id="ref-20">Moonshot AI, <a href="https://arxiv.org/abs/2602.02276">“Kimi K2.5: Visual Agentic Intelligence”</a> — a multimodal agentic model report that includes the Token-Efficient RL (Toggle) method for controlling reasoning length via alternating budgeted and unconstrained training phases.</li>
               <li id="ref-21">xAI, <a href="https://docs.x.ai/developers/model-capabilities/text/reasoning">“Reasoning”</a> — Grok 4.6 effort levels, encrypted reasoning continuity, and the different semantics of effort on the multi-agent model.</li>
               <li id="ref-22">Qwen, <a href="https://github.com/QwenLM/Qwen3.8">“Qwen3.8”</a> — the latest open-model series, explicit reasoning effort, and preserved thinking.</li>
             </ol>
@@ -583,6 +651,18 @@ console.log(response.usage.output_tokens_details.reasoning_tokens);</code></pre>
               <li id="ref-28">Muennighoff et al., <a href="https://aclanthology.org/2025.emnlp-main.1025/">“s1: Simple Test-Time Scaling”</a>, EMNLP 2025 — an open implementation of budget forcing trained from 1,000 curated reasoning examples.</li>
               <li id="ref-29">Anthropic, <a href="https://platform.claude.com/docs/en/about-claude/models/optimizing-for-cost-and-intelligence">“Optimizing for cost and intelligence”</a> — vendor-run effort sweeps, SWE-bench Pro escalation results, task budgets, and multi-model routing.</li>
               <li id="ref-30">Agarwal, Sengupta, and Chakraborty, <a href="https://arxiv.org/abs/2512.02008">“The Art of Scaling Test-Time Compute for Large Language Models”</a> — a 30-billion-token comparison of test-time strategies across eight open models and four reasoning datasets.</li>
+            </ol>
+
+            <h3>Cache-preserving effort control (September 2026)</h3>
+            <ol start="31">
+              <li id="ref-31">OpenAI, <a href="https://developers.openai.com/api/docs/guides/prompt-caching">“Prompt caching”</a> — prefix-caching mechanics, cache breakpoints, and how a changed prompt prefix invalidates a cached conversation.</li>
+              <li id="ref-32">OpenAI, <a href="https://openai.com/index/gpt-6-astra/">“GPT-6 Astra”</a> and <a href="https://developers.openai.com/api/docs/guides/reasoning#configuration-update">“Reasoning models: configuration_update”</a> — the appended, cache-preserving effort-update event, its restrictions with automatic compaction, and the request-level-effort reporting caveat.</li>
+              <li id="ref-33">Anthropic, <a href="https://platform.claude.com/docs/en/build-with-claude/prompt-caching">“Prompt caching”</a> — cache breakpoints and the mid-conversation <code>output_config.effort</code> update that preserves earlier ones.</li>
+              <li id="ref-34">vLLM, <a href="https://docs.vllm.ai/en/latest/features/automatic_prefix_caching.html">“Automatic Prefix Caching”</a> — how a serving runtime reuses KV cache for an unchanged token prefix.</li>
+              <li id="ref-35">Google, <a href="https://ai.google.dev/gemini-api/docs/caching">“Context caching”</a> — explicit, named cached content billed separately from the per-request thinking level.</li>
+              <li id="ref-36">xAI, <a href="https://docs.x.ai/developers/guides/prompt-caching">“Prompt caching”</a> — automatic caching behavior on Grok models and the absence of documented guidance for effort transitions.</li>
+              <li id="ref-37">Mistral AI, <a href="https://docs.mistral.ai/getting-started/models/models_overview/">“Small 4”</a> model documentation — effort recorded in an early model-settings block ahead of the conversation.</li>
+              <li id="ref-38">MiniMax, <a href="https://huggingface.co/MiniMaxAI/MiniMax-M3">“MiniMax M3”</a> chat template — thinking-mode instructions placed in the initial system prompt.</li>
             </ol>
           </section>
         </article>
