@@ -319,7 +319,8 @@ Everything before the control event stays byte-for-byte unchanged and remains el
 | Gemini | Per-request thinking level plus explicit, named cached content | Stable cached base can be reused; not documented for the full implicit dialogue history | Economic near-equivalent |
 | Grok 4.6 | Top-level effort plus automatic caching | Not documented across effort changes | Unconfirmed |
 | Kimi K3 | Effort chosen before the conversation starts | No supported transition | Not equivalent |
-| DeepSeek V4, GLM-5.3, Mistral Small 4, Qwen3.8 (graded template), gpt-oss, MiniMax M3 | Effort encoded in the opening system block or an early prompt prefix | No | Cache-breaking |
+| DeepSeek V4, GLM-5.3, Qwen3.8 (graded template), gpt-oss | Effort encoded in the opening system block or an early prompt prefix | No | Cache-breaking |
+| Mistral Small 4, MiniMax M3 | Effort/thinking chosen via a top-level request field, not an appended event | No supported transition | Not equivalent |
 
 This list is not necessarily exhaustive, and it will age quickly — treat it as a snapshot of the principal frontier and open-weight families as of early September 2026, not a permanent scorecard.
 
@@ -353,7 +354,7 @@ Gemini separates the per-request `thinking_level` from an explicitly named cache
 
 ### Why most models still lose the cache
 
-Official chat templates confirm early, cache-breaking effort placement in DeepSeek V4, GLM-5.3, Mistral Small 4, gpt-oss, and MiniMax M3.[^deepseek-v4][^glm][^mistral-small4][^gpt-oss][^minimax-m3] Kimi's documentation goes further and explicitly recommends deciding reasoning effort before the conversation begins rather than changing it mid-run.[^kimi-k3] Grok exposes both reasoning effort and prompt caching, but xAI does not document whether cache reuse survives an effort change, which is why it's classified as unconfirmed rather than cache-breaking.[^xai][^xai-caching]
+Official chat templates confirm early, cache-breaking effort placement in DeepSeek V4, GLM-5.3, and gpt-oss.[^deepseek-v4][^glm][^gpt-oss] Mistral Small 4 and MiniMax M3 select effort or thinking mode through a top-level request field rather than an appended event, so neither offers a documented mid-conversation transition; the exact rendering details differ from model to model and are worth checking against the current chat template before relying on them.[^mistral-small4][^minimax-m3] Kimi K3's `reasoning_effort` is a top-level field with no mid-conversation update path documented; it separately requires the full `reasoning_content` from prior turns to be passed back verbatim, which is a preserved-thinking requirement, not a claim about effort itself being changeable.[^kimi-k3] Grok exposes both reasoning effort and prompt caching, but xAI's caching docs address only message edits, deletions, and reordering — effort transitions specifically aren't addressed either way, which is why it's classified as unconfirmed rather than cache-breaking.[^xai][^xai-caching]
 
 ### The unresolved problem: compaction
 
@@ -409,7 +410,7 @@ A later large-scale study generated more than 30 billion tokens with eight open 
 
 ### A published harness case: retry only the failures
 
-Anthropic reported a directly operational experiment on an internal subset of SWE-bench Pro. Running Claude Opus 5 at low effort first, then rerunning only the test-detected failures at the default effort, achieved about a 93% pass rate for roughly $0.70 per task. Running every task once at the default achieved 91.7% for $1.39 per task. Starting at medium and rerunning failures produced about 94% for $0.95.[^anthropic-cost]
+Anthropic reported a directly operational experiment on an internal subset of SWE-bench Pro. At low effort, 16% of tasks failed; rerunning only those test-detected failures at the default effort brought the pass rate to about 93% for roughly $0.45 per task. Running every task once at the default achieved 91.7% for $0.93 per task. Starting at medium and rerunning failures produced about 94% for $0.61.[^anthropic-cost]
 
 The result is a useful case study of what an agent harness contributes: the model adapts within one call, but the harness observes an external test result and reallocates budget across calls. It also exposes the boundary conditions. The measurement was vendor-run on a private subset and is not comparable to the public SWE-bench leaderboard. It works because tests provide a reliable failure signal, and failed tasks pay for two attempts and therefore take longer.
 
@@ -556,6 +557,6 @@ lowest effort + required quality = right default
 [^anthropic-caching]: Anthropic, [“Prompt caching”](https://platform.claude.com/docs/en/build-with-claude/prompt-caching): cache breakpoints and the mid-conversation `output_config.effort` update that preserves earlier ones.
 [^vllm-cache]: vLLM, [“Automatic Prefix Caching”](https://docs.vllm.ai/en/latest/features/automatic_prefix_caching.html): how a serving runtime reuses KV cache for an unchanged token prefix.
 [^gemini-caching]: Google, [“Context caching”](https://ai.google.dev/gemini-api/docs/caching): explicit, named cached content billed separately from the per-request thinking level.
-[^xai-caching]: xAI, [“Prompt caching”](https://docs.x.ai/developers/guides/prompt-caching): automatic caching behavior on Grok models and the absence of documented guidance for effort transitions.
-[^mistral-small4]: Mistral AI, [“Small 4”](https://docs.mistral.ai/getting-started/models/models_overview/) model documentation: effort recorded in an early model-settings block ahead of the conversation.
-[^minimax-m3]: MiniMax, [“MiniMax M3”](https://huggingface.co/MiniMaxAI/MiniMax-M3) chat template: thinking-mode instructions placed in the initial system prompt.
+[^xai-caching]: xAI, [“Prompt caching”](https://docs.x.ai/developers/advanced-api-usage/prompt-caching) and [“What breaks caching”](https://docs.x.ai/developers/advanced-api-usage/prompt-caching/multi-turn): automatic caching behavior on Grok models; editing, removing, or reordering earlier messages breaks the cache, and effort transitions specifically aren't addressed either way.
+[^mistral-small4]: Mistral AI, [“Introducing Mistral Small 4”](https://mistral.ai/news/mistral-small-4/) and [model card](https://huggingface.co/mistralai/Mistral-Small-4-119B-2603): `reasoning_effort` is a top-level request field (`high`/`none`) rendered into the chat template rather than an appended event; Mistral's own settings-block prefix mechanism (`[MODEL_SETTINGS]{"reasoning_effort": "..."}`) is documented for Mistral Medium 3.5, not confirmed for Small 4 specifically.
+[^minimax-m3]: MiniMax, [“MiniMax M3”](https://huggingface.co/MiniMaxAI/MiniMax-M3) chat template: a `thinking` request field (`enabled`/`adaptive`/`disabled`) with reasoning wrapped in `<mm:think>` tags; exactly how that field is rendered into the prompt wasn't independently confirmed for this piece.
