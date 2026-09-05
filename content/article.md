@@ -9,7 +9,7 @@ updated: "2026-09-05"
 
 Reasoning effort entered LLM products disguised as an ordinary control: *low*, *medium*, *high*. It looks like a quality setting. It is closer to a budget. Raising the value does not make the model more knowledgeable; it changes the policy governing how much inference-time work the same model can spend before it answers.
 
-![A model configuration menu with reasoning-effort choices from Light through Ultra, separate from model and speed controls.](../assets/reasoning-effort-selector.jpg)
+![A model configuration menu with reasoning-effort choices from Light through Ultra, separate from model and speed controls.](../assets/reasoning-effort-selector.webp)
 
 *This is what reasoning effort looks like at the product surface: a second axis beside model choice, not a different model. Public Codex capture from [Sebastian Raschka’s survey](https://magazine.sebastianraschka.com/p/controlling-reasoning-effort-in-llms).*
 
@@ -29,7 +29,11 @@ The modern story starts before there was an effort field. The chain-of-thought p
 
 ![Excerpt from the chain-of-thought prompting paper comparing standard prompting with a worked reasoning trace.](../assets/chain-of-thought-paper-figure.webp)
 
-*Wei et al.’s opening figure made the result concrete: intermediate steps changed the answer, while the model and question stayed the same. Excerpt from [the original paper](https://arxiv.org/abs/2201.11903).*
+*Wei et al.’s opening figure made the result concrete: intermediate steps changed the answer, while the model and question stayed the same. Figure 1 from [the original paper](https://arxiv.org/abs/2201.11903).*
+
+![Diagram of the self-consistency method: one prompt is sampled several times to produce different reasoning paths, and the most frequent final answer is selected.](../assets/self-consistency-method.webp)
+
+*The other 2022 route to better answers spent compute across trajectories rather than inside one: sample several reasoning paths, then keep the answer they agree on. Figure 1 from [Wang et al.](https://arxiv.org/abs/2203.11171)*
 
 At this stage, the developer owned the machinery. A prompt encouraged a trace, a sampling loop created alternatives, and application code chose the result. “Reasoning effort” was an emergent consequence of prompting and decoding, not a calibrated model capability.
 
@@ -59,7 +63,7 @@ DeepSeek-R1 made the training story inspectable. R1-Zero applied large-scale rei
 
 ![DeepSeek-R1 training pipeline showing cold-start data, reasoning-oriented reinforcement learning, rejection sampling, supervised fine-tuning, and a final reinforcement-learning stage.](../assets/deepseek-r1-pipeline.webp)
 
-*DeepSeek-R1 exposed a staged recipe: seed useful reasoning, optimize verifiable behavior, recover general capability, then distill the result. Excerpt from the [DeepSeek-R1 technical report](https://arxiv.org/abs/2501.12948).*
+*DeepSeek-R1 exposed a staged recipe: seed useful reasoning, optimize verifiable behavior, recover general capability, then distill the result. Figure 2 from the [DeepSeek-R1 technical report](https://arxiv.org/abs/2501.12948).*
 
 That openness also demystified the interface. A `<think>` block was not a symbolic theorem prover hidden inside the transformer. It was an autoregressively generated scratch space, learned through training and given special treatment by the prompt template and serving stack.
 
@@ -75,7 +79,7 @@ Once reasoning was a model behavior, providers began turning it into a family of
 
 The current generation has made the term *effort* less uniform, not more. It can mean a learned ordinal mode, a hard token budget, a continuous conditioning value, an adaptive provider policy, preserved thinking across tool calls, or—in one multi-agent API—the number of collaborating agents. Agent harnesses now sit above those mechanisms, allocating compute across planning, acting, verification, retries, and handoffs.
 
-![Comparison table of effort controls, disclosed training mechanisms, and inference controls across six open-weight reasoning models.](../assets/open-model-effort-mechanisms.png)
+![Comparison table of effort controls, disclosed training mechanisms, and inference controls across six open-weight reasoning models.](../assets/open-model-effort-mechanisms.webp)
 
 *The shared word “effort” hides very different implementations: discrete specialists, token budgets, binary switches, retained thinking, and continuous conditioning. Comparison from [Sebastian Raschka’s 2026 survey](https://magazine.sebastianraschka.com/p/controlling-reasoning-effort-in-llms).*
 
@@ -93,11 +97,19 @@ That history explains the present confusion. The industry converged on the need 
 
 A conventional description of an LLM request has two parts: tokens go in and tokens come out. A reasoning model adds a meaningful middle stage. Before and sometimes between pieces of visible output, the model can spend computation deciding how to approach the task. It may decompose the problem, keep track of intermediate results, reconsider an assumption, decide which tool to call, or inspect whether a proposed answer is internally consistent.
 
+![Side-by-side comparison of a conventional LLM answering directly and a reasoning LLM working through intermediate steps with self-correction and backtracking before answering.](../assets/reasoning-llm-vs-conventional.webp)
+
+*The same question, two response shapes. The middle stage is where effort is spent — and where self-correction and backtracking happen. From [Sebastian Raschka’s survey](https://magazine.sebastianraschka.com/p/controlling-reasoning-effort-in-llms).*
+
 ## Reasoning tokens are part of the budget
 
 Reasoning models introduce a hidden computational stage between input and visible output. Providers account for that work in different ways, but the engineering consequences are the same: it consumes budget, time, and context capacity.
 
 In OpenAI’s Responses API, reasoning tokens are not exposed as readable internal chain-of-thought. They are still counted in usage, occupy context-window space, and are billed as output tokens. The response reports their count under `output_tokens_details.reasoning_tokens`.[^openai-reasoning]
+
+![OpenAI diagram of a multi-turn conversation showing reasoning tokens generated and then discarded between turns while input and output tokens accumulate in the context window.](../assets/reasoning-tokens-context-window.png)
+
+*Reasoning tokens occupy the context window and are billed as output, even though they are discarded between turns. Diagram from [OpenAI’s reasoning guide](https://developers.openai.com/api/docs/guides/reasoning).*
 
 | Token class | Visible? | Consumes budget? |
 |---|---:|---:|
@@ -113,6 +125,10 @@ Reasoning effort is usually not a promise to spend an exact number of tokens. It
 
 A response can exhaust its output limit during reasoning before it emits a useful visible answer. Treat the generated-token limit as a shared envelope, not merely a cap on prose length.
 
+![Two charts for gpt-oss-120b and gpt-oss-20b plotting accuracy against combined chain-of-thought and answer length, with low, medium and high effort marked along each curve.](../assets/gpt-oss-effort-vs-length.webp)
+
+*What the effort levels actually buy on gpt-oss: more tokens generated, and accuracy that follows the token count rather than the label. From [Sebastian Raschka’s survey](https://magazine.sebastianraschka.com/p/controlling-reasoning-effort-in-llms).*
+
 ## Reasoning effort is not verbosity
 
 Reasoning effort changes the work used to solve a task. It does not directly set how long, creative, or well-informed the final answer will be.
@@ -127,9 +143,17 @@ Reasoning effort changes the work used to solve a task. It does not directly set
 
 A model can reason extensively and return three sentences. It can also produce two pages of plausible prose after shallow reasoning. This is why “explain in detail” is not a reliable substitute for an effort control—and why visible length is a poor proxy for computational work.
 
+![Two chat windows side by side answering the same trivial question, one with thinking disabled and a one-line answer, one with thinking enabled and a long visible reasoning trace.](../assets/thinking-mode-toggle-ui.webp)
+
+*The same trivial question with thinking off and on. The internal work changed enormously; the answer did not. From [Sebastian Raschka’s survey](https://magazine.sebastianraschka.com/p/controlling-reasoning-effort-in-llms).*
+
 ## The API surface
 
 The exact parameter is provider- and model-specific. Some APIs expose qualitative levels, some expose token budgets, and others choose adaptively. Always check the model’s current reference page before hard-coding a value.
+
+![Table comparing the OpenAI-format and Anthropic-format control parameters for a thinking-mode toggle and a thinking-effort control, with footnotes on defaults and level mapping.](../assets/effort-control-parameters.webp)
+
+*One model, two wire formats, and a footnote explaining which levels get silently remapped — a compact illustration of why a gateway label is not a portable quantity. From [Sebastian Raschka’s survey](https://magazine.sebastianraschka.com/p/controlling-reasoning-effort-in-llms).*
 
 Here is a concrete OpenAI Responses API example. At the time of writing, `gpt-5.6` supports `none`, `low`, `medium`, `high`, `xhigh`, and `max`; supported values and defaults remain model-dependent.[^openai-models]
 
@@ -226,9 +250,17 @@ Training a larger or better post-trained model changes the weights. Increasing r
 
 A longer trace is only one form of inference scaling. A harness can sample multiple solutions and select by majority vote or a verifier, ask for critique and revision, search a tree of candidates, or fan out to several agents. These methods spend compute across trajectories instead of only extending one.
 
+![Scatter plot of index score against API cost for a family of GPT-5.6 models, with arrows separating movement along the training-scaling direction from movement along the inference-scaling direction.](../assets/training-vs-inference-scaling.webp)
+
+*Two different arrows on one chart: training scaling moves between checkpoints, inference scaling moves along a checkpoint’s own effort ladder. From [Sebastian Raschka’s survey](https://magazine.sebastianraschka.com/p/controlling-reasoning-effort-in-llms).*
+
 ### RLVR and think delimiters
 
 DeepSeek-R1 popularized reinforcement learning with verifiable rewards. In math or code, a checker can reward the final answer without supervising every reasoning step. The model can learn scratch work, backtracking, and self-correction because those behaviors improve its chance of receiving the outcome reward.[^deepseek-r1]
+
+![Diagram of effort-conditioned reinforcement learning: a low-effort system prompt is paired with a high length penalty and a high-effort prompt with a low penalty, alongside example training data.](../assets/effort-conditioned-rl.webp)
+
+*How a model is taught to read the word “low”: the requested effort goes in the system prompt while the length penalty moves in the opposite direction during RL. From [Sebastian Raschka’s survey](https://magazine.sebastianraschka.com/p/controlling-reasoning-effort-in-llms).*
 
 The literal `<think>` tags do not create reasoning. They delimit an intermediate trace so trainers, servers, and user interfaces can separate it from the answer. Another marker could serve the same protocol role.
 
@@ -245,13 +277,25 @@ A plain-language instruction works only when post-training taught the model to i
 
 DeepSeek-R1-Zero applied large-scale reinforcement learning without supervised fine-tuning first and exhibited longer reasoning, reflection, and self-correction. The full R1 pipeline added cold-start supervised data, further reinforcement learning, and later supervised and RL stages. DeepSeek also distilled the behavior into smaller Qwen and Llama checkpoints.[^deepseek-r1]
 
+![Two charts of DeepSeek-R1-Zero during reinforcement learning: AIME accuracy rising past the human-participant baseline, and average response length growing from a few hundred to over twelve thousand tokens.](../assets/deepseek-r1-zero-training.webp)
+
+*Nobody asked R1-Zero for longer traces. Reward for being right, and the response length climbs on its own. Figure 1 from the [DeepSeek-R1 technical report](https://arxiv.org/abs/2501.12948)*
+
 ### Qwen3
 
 Qwen3 was trained for hybrid thinking and non-thinking behavior. Its Transformers integration enables thinking by default, supports a hard `enable_thinking=False` switch, and accepts `/think` or `/no_think` steering when thinking is enabled. The template and parser separate the generated trace from the final answer. Qwen3 also supports a hard reasoning budget: the runtime can stop the trace, insert a stop-thinking instruction, and continue to the answer. Its report says this continuation behavior emerged after Thinking Mode Fusion rather than explicit truncation training.[^qwen3]
 
+![Qwen3 post-training pipeline ending in a Thinking Mode Fusion supervised fine-tuning stage, with example training data showing /think and /no_think prompts and their expected responses.](../assets/qwen3-thinking-mode-fusion.webp)
+
+*Qwen3’s hybrid switch is a training artifact: the same checkpoint is fine-tuned on both `/think` and `/no_think` examples, empty thinking tags included. From [Sebastian Raschka’s survey](https://magazine.sebastianraschka.com/p/controlling-reasoning-effort-in-llms).*
+
 ### gpt-oss
 
 OpenAI’s gpt-oss models are open-weight mixture-of-experts reasoning models with low, medium, and high effort. The Harmony prompt protocol places effort in the system message and separates analysis, tool commentary, and final channels. A serving runtime may implement Harmony for you; a custom loop must render and parse it correctly.[^gpt-oss]
+
+![Diagram showing a user-facing High reasoning-effort selection being rendered into a gpt-oss Harmony system message containing the line Reasoning: high before the model receives it.](../assets/gpt-oss-harmony-effort.webp)
+
+*Where the effort selector actually lands in gpt-oss: as the line `Reasoning: high` inside the opening Harmony system message. From [Sebastian Raschka’s survey](https://magazine.sebastianraschka.com/p/controlling-reasoning-effort-in-llms).*
 
 ### The 2026 generation
 
@@ -283,6 +327,10 @@ Thinking Machines Lab’s Inkling uses a continuous effort value. During large-s
 
 Providers can, and increasingly do. Gemini uses dynamic thinking by default on current thinking models. Anthropic’s adaptive mode decides whether and how deeply to think. OpenAI treats effort as guidance rather than an exact reservation.[^gemini][^anthropic-thinking][^openai-reasoning]
 
+![Three benchmark charts plotting score against mean generated tokens, with a continuous Inkling effort sweep traced from effort 0.2 to effort 0.99 and single points marking other models.](../assets/inkling-continuous-effort-sweep.webp)
+
+*A continuous effort sweep instead of three labels: one checkpoint traced from effort 0.2 to 0.99 against fixed points for other models. From [Sebastian Raschka’s survey](https://magazine.sebastianraschka.com/p/controlling-reasoning-effort-in-llms).*
+
 That does not solve the application’s optimization problem. The provider may not know the cost of a wrong migration recommendation, a user’s latency target, whether a validator can catch a bad extraction, or whether the next tool call is irreversible. Prompt difficulty is only one input. The real question is how much this system should spend given the value and risk of the step.
 
 The useful division of responsibility is hierarchical:
@@ -296,6 +344,10 @@ The useful division of responsibility is hierarchical:
 An agent harness owns the loop around model calls: state, tools, retries, handoffs, limits, and observability. Reasoning effort can therefore change per call as a run moves through classification, planning, action, verification, and synthesis.
 
 A harness can:
+
+![Bar chart of accuracy points gained when a cheaper executor model calls a stronger advisor model on demand, across several benchmark and model-pairing combinations.](../assets/advisor-model-routing.webp)
+
+*One harness-level move, measured: keep a cheap model in the loop and call a stronger one on demand rather than raising effort everywhere. From Anthropic’s [“Optimizing for cost and intelligence”](https://platform.claude.com/docs/en/about-claude/models/optimizing-for-cost-and-intelligence).*
 
 - Set different effort for different steps.
 - Switch to a stronger model when more effort on the current model is unlikely to help.
@@ -325,6 +377,10 @@ Reasoning state is also protocol data. Providers may return summaries, encrypted
 Per-step effort sounds economical until the conversation becomes long. Many model protocols serialize effort near the beginning of the prompt. Changing `low` to `high` then changes an early token, so the previously cached prefix no longer matches. The harness saves reasoning tokens on one turn and pays to process the entire history again on the next.
 
 GPT-6 Astra and recent Claude models change that trade-off. They let the application append an effort update to an existing conversation. The old history remains byte-for-byte unchanged and eligible for prompt-cache reuse; only the new control event and later turns have to be processed under the new policy. Qwen3 offered an earlier, less formal open-weight analogue, while Gemini can preserve the economics of a stable cached corpus without making the same arbitrary-conversation guarantee.
+
+![Dot plot comparing cost per task with and without prompt caching across four model and effort configurations, showing reductions between 2.2 and 5.3 times.](../assets/prompt-caching-savings.webp)
+
+*Why the prefix is worth protecting: on a repeated-prefix workload, caching moves the bill by multiples, not percentages. From Anthropic’s [“Optimizing for cost and intelligence”](https://platform.claude.com/docs/en/about-claude/models/optimizing-for-cost-and-intelligence).*
 
 > **Thesis:** Reasoning effort is becoming mutable runtime state. The important shift is from rebuilding a prompt to appending a privileged event.
 
@@ -419,11 +475,19 @@ Typed privileged controls are safer than textual switches such as `/think`: they
 
 An append-only history eventually becomes too large. Compaction then rewrites the prefix and may erase the events that established current policy. A complete checkpoint has to preserve both summarized semantic history and effective runtime state: reasoning effort, active tools, permissions, output configuration, and outstanding agent state. Astra's current compaction restrictions expose the protocol gap directly. Future agent APIs will likely need explicit snapshots that combine compressed history with a typed configuration checkpoint.
 
+![Bar chart of cost per session for four timings of a cache-breaking change, showing that making the change on the request after compaction is cheapest.](../assets/compaction-timing.webp)
+
+*Until the protocol gap closes, timing is the lever: make a cache-breaking change on the request after compaction, not before it. From Anthropic’s [“Optimizing for cost and intelligence”](https://platform.claude.com/docs/en/about-claude/models/optimizing-for-cost-and-intelligence).*
+
 Until then, a production harness should keep stable instructions and long-lived context first; append rather than rewrite; record cache reads, writes, and uncached tokens; track effective effort independently of response metadata; reapply state after compaction; and pin effort for a session when the model template encodes it at the beginning. Escalation is also forward-only: raising effort now cannot retroactively repair a bad decision already embedded in the history.
 
 ## Choosing an effort level
 
 Start with the lowest effort that reliably clears your quality bar. Increase it when the task has branching possibilities, dependent steps, ambiguity, or costly mistakes.
+
+![Five small charts sweeping low, medium and default effort against cost per task on research, evaluation and coding benchmarks; the research curves are nearly flat while the coding curve rises steeply.](../assets/effort-sweep-by-task.webp)
+
+*The same dial, five workloads. It is nearly flat on research tasks and steep on long-horizon coding — which is the whole argument for sweeping it per task family. From Anthropic’s [“Optimizing for cost and intelligence”](https://platform.claude.com/docs/en/about-claude/models/optimizing-for-cost-and-intelligence).*
 
 ### None or minimal: direct transformation
 
@@ -445,6 +509,10 @@ Consider it for complex debugging, architecture, adversarial review, and high-va
 
 Reserve the deepest settings for asynchronous research or difficult agentic work—and only when evaluations justify the additional resources.
 
+![Line chart of rubric score against cost per task on DeepResearch Bench II, showing that scores flatten between medium and high effort while cost keeps rising.](../assets/effort-limit-diminishing-returns.webp)
+
+*A measured case of the ceiling: on research work the score flattens above medium while the bill keeps climbing. From Anthropic’s [“Optimizing for cost and intelligence”](https://platform.claude.com/docs/en/about-claude/models/optimizing-for-cost-and-intelligence).*
+
 ### A five-question routing test
 
 1. Does the task require several dependent decisions?
@@ -455,9 +523,17 @@ Reserve the deepest settings for asynchronous research or difficult agentic work
 
 The first three questions estimate potential value. The fourth establishes the operational budget. The fifth decides the matter. If the evaluation says “no,” the higher setting is overhead.
 
+![Four charts plotting mean accuracy against average completion tokens on AIME and GPQA datasets, each showing accuracy falling as models spend more tokens on harder problems.](../assets/difficulty-vs-completion-tokens.webp)
+
+*Difficulty shows up in the tokens a model spends, not in the tokens you send it: accuracy falls as completion length rises across every dataset. Figure 3 from [Agarwal et al.](https://arxiv.org/abs/2512.02008)*
+
 ## Evaluate a frontier, not a winner
 
 There is no globally best effort level. You are looking for the configurations that sit on the quality–latency–cost frontier for your workload.
+
+![Schematic curve of quality against cost per task, marking a workload sitting above the frontier and the two directions that move it back onto the curve.](../assets/cost-quality-frontier.webp)
+
+*The shape the whole exercise is looking for: a curve of configurations that buy quality with cost and nothing else. From Anthropic’s [“Optimizing for cost and intelligence”](https://platform.claude.com/docs/en/about-claude/models/optimizing-for-cost-and-intelligence).*
 
 ### What published work already shows
 
@@ -465,11 +541,19 @@ The most influential independent result is Snell and colleagues’ ICLR 2025 stu
 
 The peer-reviewed *s1* project provides a concrete implementation case. The researchers fine-tuned Qwen2.5-32B-Instruct on 1,000 carefully selected reasoning examples, then controlled its inference budget by ending the reasoning span at a limit or appending “Wait” when the model tried to stop. On AIME 2024, extending the budget raised reported accuracy from 50% to 57%. The case is important because the data, model, and code are open, but its result should not be universalized: the model was specifically trained for the intervention and the headline evaluations were competition mathematics and science questions.[^s1]
 
+![Two charts from Snell et al.: MATH accuracy against generation budget comparing compute-optimal scaling with best-of-N baselines, and a FLOPs-matched comparison of test-time against pretraining compute split by question difficulty.](../assets/compute-optimal-test-time-scaling.webp)
+
+*The result and its boundary in one figure: compute-optimal allocation beats best-of-*N* at the same budget (left), but on hard questions extra pretraining still wins (right). Figure 1 from [Snell et al.](https://arxiv.org/abs/2408.03314)*
+
 A later large-scale study generated more than 30 billion tokens with eight open models across four reasoning datasets. It found no universally best test-time strategy. Some models favored short traces; others benefited from longer traces only on hard problems; expanding beam search often flattened or reduced accuracy even while consuming more tokens. The best policy depended on the model’s post-training, the problem, and the available compute budget.[^art-tts]
 
 ### A published harness case: retry only the failures
 
 Anthropic reported a directly operational experiment on an internal subset of SWE-bench Pro. Running Claude Opus 5 at low effort first, then rerunning only the test-detected failures at the default effort, achieved about a 93% pass rate for roughly $0.70 per task. Running every task once at the default achieved 91.7% for $1.39 per task. Starting at medium and rerunning failures produced about 94% for $0.95.[^anthropic-cost]
+
+![Scatter plot of pass rate against cost per task on a SWE-bench Pro subset, showing that low-first and medium-first retry strategies sit above and to the left of every fixed effort setting.](../assets/escalate-only-the-failures.webp)
+
+*The published numbers plotted: both retry strategies sit above and to the left of every fixed setting, including the default. From Anthropic’s [“Optimizing for cost and intelligence”](https://platform.claude.com/docs/en/about-claude/models/optimizing-for-cost-and-intelligence).*
 
 The result is a useful case study of what an agent harness contributes: the model adapts within one call, but the harness observes an external test result and reallocates budget across calls. It also exposes the boundary conditions. The measurement was vendor-run on a private subset and is not comparable to the public SWE-bench leaderboard. It works because tests provide a reliable failure signal, and failed tasks pay for two attempts and therefore take longer.
 
@@ -493,6 +577,10 @@ function chooseEffort(task) {
   if (task.kind === "extract" && task.schemaIsStrict) {
     return "low";
   }
+
+![Chart of tasks solved against cost per solved task on SWE-bench Pro, showing the frontier model at low effort beating the mid-tier model at default effort on both axes.](../assets/cost-per-solved-task.webp)
+
+*A routing result worth internalising: the frontier model at low effort can beat the mid-tier model at its default on both cost and score. From Anthropic’s [“Optimizing for cost and intelligence”](https://platform.claude.com/docs/en/about-claude/models/optimizing-for-cost-and-intelligence).*
 
   if (task.isHighStakes || task.hasManyConstraints) {
     return task.canRunAsync ? "high" : "medium";
@@ -538,6 +626,10 @@ You lose causal information. Sweep one variable at a time before testing interac
 
 Reasoning can consume the output envelope. Detect incomplete states and budget generated tokens deliberately.
 
+![Chart of output tokens in one turn on a log scale for two models, showing that almost every turn is short but a small share of turns exceeds the default cap and ends the attempt.](../assets/max-tokens-ladder.webp)
+
+*Almost no turn is long — and the cap still decides the whole attempt, because the few long ones are the ones that were solving something. From Anthropic’s [“Optimizing for cost and intelligence”](https://platform.claude.com/docs/en/about-claude/models/optimizing-for-cost-and-intelligence).*
+
 ### Treating labels as portable
 
 “Medium” on one model is not a standardized quantity. Recalibrate when the model or provider changes.
@@ -563,6 +655,10 @@ Astra's configuration updates and Claude's per-message configuration make one fu
 ### Bet 4 — the best systems mix several kinds of test-time compute
 
 More inference does not have to mean a longer monologue. A future allocator may choose between extending one trace, asking a verifier, sampling alternatives, running a specialist, or creating a small team of agents. The important quantity will be total system compute per successful outcome, including tools and retries—not the token count of one response.
+
+![Two radar charts comparing benchmark performance and token usage before and after Kimi K2.5's Toggle training, showing similar scores with substantially lower token consumption.](../assets/token-efficient-rl-toggle.webp)
+
+*An early instance of the same idea inside training: benchmark scores held roughly flat while token usage fell sharply. From [Sebastian Raschka’s survey](https://magazine.sebastianraschka.com/p/controlling-reasoning-effort-in-llms).*
 
 ### Bet 5 — automatic effort improves, but budget ownership stays outside the model
 

@@ -39,5 +39,10 @@ The workflow follows GitHub's current static-site guidance and uses the official
 - Visual system and responsive behavior: `styles.css`
 - Reading progress, section navigation, and copy action: `script.js`
 - Plain Markdown article: `content/article.md`
+- Figures: `assets/`
 
 When API details change, update both `index.html` and `content/article.md` and keep claims tied to model-specific sources. The expandable reference appendices are intended to absorb fast-moving provider and open-model details without interrupting the main narrative.
+
+## Figures
+
+Every figure in `assets/` is taken from a source the article cites, and every caption names that source and links to it. Paper figures are rendered from the arXiv PDF at 320 dpi and cropped to the figure; vendor figures are the published originals. When adding one, keep both rules: attribute it in the caption, and add it to `index.html` and `content/article.md` together so the two stay in sync.
