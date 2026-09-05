@@ -126,7 +126,7 @@ summary:focus-visible,
 .article-header {
   width: min(760px, calc(100% - 3rem));
   margin: 0 auto;
-  padding: 5rem 0 5.5rem;
+  padding: 5rem 0 4rem;
   text-align: center;
 }
 
@@ -148,48 +148,6 @@ summary:focus-visible,
 
 .meta-sep {
   margin: 0 0.4rem;
-}
-
-.subtitle {
-  max-width: 650px;
-  margin: 1.4rem auto 1.6rem;
-  color: var(--muted);
-  font-size: 1.2rem;
-  line-height: 1.5;
-}
-
-.tldr {
-  width: min(660px, calc(100% - 3rem));
-  margin: 0 auto 4rem;
-  padding: 1.5rem 1.8rem;
-  border: 2px solid var(--accent);
-  border-radius: 4px;
-  background: var(--note);
-}
-
-.tldr h2 {
-  margin: 0 0 0.8rem;
-  font-family: var(--sans);
-  font-size: 0.85rem;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--accent);
-}
-
-.tldr ul {
-  margin: 0;
-  padding-left: 1.2rem;
-  font-size: 0.92rem;
-  line-height: 1.6;
-}
-
-.tldr li {
-  margin-bottom: 0.7rem;
-}
-
-.tldr li:last-child {
-  margin-bottom: 0;
 }
 
 .article-shell {
@@ -271,6 +229,35 @@ article p {
 
 .introduction > p:first-child {
   font-size: 1.08em;
+}
+
+.source-figure {
+  margin: 2rem 0 2.6rem;
+}
+
+.source-figure img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--rule);
+  background: #fff;
+}
+
+.source-figure figcaption {
+  margin-top: 0.7rem;
+  color: var(--muted);
+  font-family: var(--sans);
+  font-size: 0.78rem;
+  line-height: 1.55;
+}
+
+.source-figure--compact {
+  margin-top: 1.8rem;
+}
+
+.source-figure--tall img {
+  max-height: 46rem;
+  object-fit: contain;
 }
 
 article h2,
@@ -647,20 +634,11 @@ pre {
 
   .article-header {
     width: calc(100% - 2rem);
-    padding: 3.5rem 0 4rem;
+    padding: 3.5rem 0 3rem;
   }
 
   .article-header h1 {
     font-size: 2.35rem;
-  }
-
-  .subtitle {
-    font-size: 1.05rem;
-  }
-
-  .tldr {
-    width: calc(100% - 2rem);
-    padding: 1.2rem 1.3rem;
   }
 
   .article-shell {

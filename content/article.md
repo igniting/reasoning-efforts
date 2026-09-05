@@ -1,26 +1,23 @@
 ---
 title: "Reasoning effort is not an intelligence slider"
-subtitle: "The engineering story of test-time compute, adaptive agents, and cache-preserving control"
 updated: "2026-09-05"
 ---
 
 # Reasoning effort is not an intelligence slider
 
-The small low–medium–high selector is the visible end of a larger change in how language models are trained, served, and orchestrated.
-
-> **Thesis:** Reasoning effort is not intelligence. It is an inference-time compute policy.
-
 ## Introduction
 
-An engineer opening an LLM console today may find a small selector labeled *low*, *medium*, or *high*. It looks like a quality setting: move it to the right and receive a better answer. But that modest control is the visible end of a much larger change in how language models are trained, served, and orchestrated.
+Reasoning effort entered LLM products disguised as an ordinary control: *low*, *medium*, *high*. It looks like a quality setting. It is closer to a budget. Raising the value does not make the model more knowledgeable; it changes the policy governing how much inference-time work the same model can spend before it answers.
 
-A few years ago, developers tried to elicit reasoning by writing “think step by step,” supplying worked examples, or sampling several answers and voting. Then models were trained to produce useful intermediate work. Providers began charging for hidden reasoning tokens. Open-weight releases exposed the training recipes and prompt protocols. Agent harnesses learned to vary the budget from one step to the next. What began as a prompting trick became a layer of inference infrastructure.
+![A model configuration menu with reasoning-effort choices from Light through Ultra, separate from model and speed controls.](../assets/reasoning-effort-selector.jpg)
 
-Consider two requests. The first asks a model to extract an invoice number from a well-formed document. The second asks it to review a database migration for failure modes that could cause data loss. Both requests involve language, but the useful work is different. Extraction mostly requires recognizing a value and returning it in the requested schema. The migration review requires the model to reconstruct a plan, follow dependencies, imagine partial failures, compare alternatives, and check whether its own conclusions are supported.
+*This is what reasoning effort looks like at the product surface: a second axis beside model choice, not a different model. Public Codex capture from [Sebastian Raschka’s survey](https://magazine.sebastianraschka.com/p/controlling-reasoning-effort-in-llms).*
 
-These tasks should not receive the same inference budget. Reasoning effort is best understood as a model-specific policy that influences how much computational work the model applies while producing a response. Lower effort favors a direct path. Higher effort allows a longer or more thorough internal trajectory: planning, exploring alternatives, checking intermediate results, and recovering from a bad approach.
+On a single request, that distinction may seem academic. Across a long-running agent, it governs hidden generation, latency, cache reuse, and how much of a finite budget is spent planning rather than acting. Raising effort indiscriminately wastes compute. Holding it too low can starve the few decisions on which the rest of a run depends.
 
-That allowance is not equivalent to giving the model a fixed amount of extra wall-clock time. It commonly results in more generated reasoning tokens and therefore more latency, but the mapping is adaptive: the same setting can consume very different token counts and durations on two prompts. Extra effort creates an opportunity to do useful work; it does not reserve a precise number of seconds or guarantee a correct answer.
+A few years ago, developers tried to elicit reasoning by writing “think step by step,” supplying worked examples, or sampling several answers and voting. Then models were trained to produce useful intermediate work. Providers began charging for hidden reasoning tokens. Open-weight releases exposed the training recipes. Agent harnesses learned to vary the budget from one step to the next. What began as a prompting technique has become a layer of inference infrastructure, often still treated as a UI preference.
+
+> Reasoning effort is not an intelligence slider. It is an inference-time compute policy — and the right default is the lowest level that makes the system work reliably.
 
 To understand what the selector means—and why providers and agent harnesses cannot simply hide it forever—we need to follow the path by which reasoning became something engineers could budget.
 
@@ -30,11 +27,19 @@ To understand what the selector means—and why providers and agent harnesses ca
 
 The modern story starts before there was an effort field. The chain-of-thought paper showed that sufficiently large language models could solve some multi-step problems more accurately when prompts included worked intermediate reasoning. Self-consistency then showed a second route to better results: sample several different reasoning paths and select the answer they most often reach. One method spent more tokens inside a trajectory; the other spent more compute across trajectories. Both established the idea that inference could be scaled after training.[^cot][^self-consistency]
 
+![Excerpt from the chain-of-thought prompting paper comparing standard prompting with a worked reasoning trace.](../assets/chain-of-thought-paper-figure.webp)
+
+*Wei et al.’s opening figure made the result concrete: intermediate steps changed the answer, while the model and question stayed the same. Excerpt from [the original paper](https://arxiv.org/abs/2201.11903).*
+
 At this stage, the developer owned the machinery. A prompt encouraged a trace, a sampling loop created alternatives, and application code chose the result. “Reasoning effort” was an emergent consequence of prompting and decoding, not a calibrated model capability.
 
 ### 2023: the process became a training target
 
 The next step moved reasoning from prompt craft into post-training. Work on process supervision compared rewarding correct intermediate steps with rewarding only the final outcome. In mathematics, OpenAI reported that process-supervised reward models selected correct solutions more reliably than outcome-supervised ones as more candidate solutions were considered. This did not settle the general training recipe, but it made a central design question explicit: should a model learn from the path, the destination, or both?[^process-supervision]
+
+![OpenAI chart showing process-supervised reward models selecting more correct MATH solutions than outcome-supervised reward models as the number of samples increases.](../assets/process-supervision-chart.svg)
+
+*Process supervision did more than improve one score: its advantage widened as the evaluator chose among more candidate solutions. Chart from [OpenAI’s process-supervision study](https://openai.com/index/improving-mathematical-reasoning-with-process-supervision/).*
 
 Verifiable domains such as mathematics and code offered another possibility. If a checker can determine whether the final answer or program is correct, reinforcement learning can reward successful behavior without requiring a human to annotate every hidden step. That idea would become central to the open reasoning-model wave.
 
@@ -42,11 +47,19 @@ Verifiable domains such as mathematics and code offered another possibility. If 
 
 OpenAI’s o1 release was the moment the shift became visible to ordinary API users. OpenAI described a model trained with reinforcement learning to refine its chain of thought, recognize mistakes, and try other approaches, and reported that performance improved with both train-time compute and time spent thinking at inference. Raw chain-of-thought was withheld, while a model-generated summary could be shown. The internal trajectory had become a metered product behavior rather than prompt text the application necessarily owned.[^o1]
 
+![Two OpenAI scatter plots showing o1 AIME accuracy rising with train-time compute and with test-time compute.](../assets/o1-test-time-compute.jpg)
+
+*The o1 launch made the new scaling axis explicit: performance rose not only with training compute, but also with compute spent after the prompt arrived. Figure from [OpenAI’s o1 release](https://openai.com/index/learning-to-reason-with-llms/).*
+
 This changed the engineering question. Developers no longer asked only, “How should I prompt the model to reason?” They also had to ask, “How much invisible generation should this request be allowed to consume, how do I measure it, and when does the extra latency pay off?”
 
 ### January 2025: open weights exposed the recipe
 
 DeepSeek-R1 made the training story inspectable. R1-Zero applied large-scale reinforcement learning before supervised fine-tuning and developed longer reasoning, reflection, and self-correction. The full R1 pipeline added cold-start data and further training for readability and general usefulness, then distilled the behavior into smaller models. The release turned techniques that had largely been inferred from closed systems into code, weights, and a detailed report.[^deepseek-r1]
+
+![DeepSeek-R1 training pipeline showing cold-start data, reasoning-oriented reinforcement learning, rejection sampling, supervised fine-tuning, and a final reinforcement-learning stage.](../assets/deepseek-r1-pipeline.webp)
+
+*DeepSeek-R1 exposed a staged recipe: seed useful reasoning, optimize verifiable behavior, recover general capability, then distill the result. Excerpt from the [DeepSeek-R1 technical report](https://arxiv.org/abs/2501.12948).*
 
 That openness also demystified the interface. A `<think>` block was not a symbolic theorem prover hidden inside the transformer. It was an autoregressively generated scratch space, learned through training and given special treatment by the prompt template and serving stack.
 
@@ -54,13 +67,25 @@ That openness also demystified the interface. A `<think>` block was not a symbol
 
 Once reasoning was a model behavior, providers began turning it into a family of controls. Qwen3 offered hybrid thinking and non-thinking modes. OpenAI’s gpt-oss encoded low, medium, and high effort in the Harmony prompt protocol. Hosted APIs exposed qualitative levels, numeric budgets, or adaptive modes. Gateways such as OpenRouter normalized the wire format, while hosts such as Baseten surfaced the native semantics of individual open models.[^qwen3][^gpt-oss][^openrouter][^baseten]
 
+![Qwen3 benchmark charts plotting accuracy against thinking budget on mathematics, coding, and science tasks.](../assets/qwen3-thinking-budget.webp)
+
+*Qwen3 turned “think more” into something engineers could sweep: a token budget with task-dependent, often diminishing returns. Figure from the [Qwen3 release](https://qwenlm.github.io/blog/qwen3/).*
+
 ### 2026: one label, several mechanisms
 
 The current generation has made the term *effort* less uniform, not more. It can mean a learned ordinal mode, a hard token budget, a continuous conditioning value, an adaptive provider policy, preserved thinking across tool calls, or—in one multi-agent API—the number of collaborating agents. Agent harnesses now sit above those mechanisms, allocating compute across planning, acting, verification, retries, and handoffs.
 
+![Comparison table of effort controls, disclosed training mechanisms, and inference controls across six open-weight reasoning models.](../assets/open-model-effort-mechanisms.png)
+
+*The shared word “effort” hides very different implementations: discrete specialists, token budgets, binary switches, retained thinking, and continuous conditioning. Comparison from [Sebastian Raschka’s 2026 survey](https://magazine.sebastianraschka.com/p/controlling-reasoning-effort-in-llms).*
+
 ### September 2026: effort becomes mutable conversation state
 
 The next step arrived almost quietly. Anthropic documented per-message effort for Claude on 1 September; OpenAI followed with GPT-6 Astra on 3 September. Both let an application append a privileged configuration event that changes effort for later turns without rewriting the conversation that came before it. A control that used to belong near the beginning of a request had become mutable state inside a long-running conversation.[^openai-reasoning][^anthropic-effort][^astra]
+
+![Claude API example appending an empty system message with output_config effort set to low, followed by a new user turn.](../assets/claude-mid-conversation-effort.jpg)
+
+*Claude’s per-message form shows the architectural shift in code: append a privileged effort event, then continue the conversation. Earlier messages remain unchanged and cacheable. Excerpt from [Anthropic’s effort documentation](https://platform.claude.com/docs/en/build-with-claude/effort).*
 
 That history explains the present confusion. The industry converged on the need to control inference-time work, but not on a unit for measuring it. The rest of this article follows the stack downward—from the semantics of the control, through tokens and model training, and back upward into agent policy and production evaluation.
 
