@@ -355,35 +355,6 @@ pre code {
   line-height: 1.6;
 }
 
-.bet-meta {
-  margin: 1rem 0 0;
-  padding-left: 1.1rem;
-  border-left: 2px solid var(--rule);
-  color: var(--muted);
-  font-family: var(--sans);
-  font-size: 0.83rem;
-  line-height: 1.6;
-}
-
-.bet-meta span {
-  display: grid;
-  grid-template-columns: 5.6rem 1fr;
-  column-gap: 0.7rem;
-}
-
-.bet-meta span + span {
-  margin-top: 0.4rem;
-}
-
-.bet-meta strong {
-  padding-top: 0.16em;
-  color: var(--faint);
-  font-size: 0.7rem;
-  font-weight: 600;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-}
-
 .reference-appendix {
   margin: 2rem 0;
   border-top: 1px solid var(--rule);
@@ -659,11 +630,6 @@ pre {
 @media (max-width: 620px) {
   body {
     font-size: 17px;
-  }
-
-  .bet-meta span {
-    grid-template-columns: 1fr;
-    row-gap: 0.1rem;
   }
 
   .article-header {

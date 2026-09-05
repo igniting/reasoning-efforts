@@ -315,6 +315,11 @@ Nemotron 3 Ultra combines controllable reasoning budgets with supervised fine-tu
 
 Kimi K2.5’s Toggle method alternates budgeted training phases, where correct solutions are encouraged to stay under a problem-specific limit, with unconstrained phases that restore the normal generation ceiling. The released policy has no selector for these training phases; the method makes its default thinking policy more token-efficient without removing its ability to benefit from extra test-time compute.[^kimi-k25]
 
+![Two radar charts comparing benchmark performance and token usage before and after Kimi K2.5's Toggle training, showing similar scores with substantially lower token consumption.](../assets/token-efficient-rl-toggle.webp)
+
+*Toggle’s effect in one picture: benchmark scores held roughly flat while token usage fell sharply. From [Sebastian Raschka’s survey](https://magazine.sebastianraschka.com/p/controlling-reasoning-effort-in-llms).*
+
+
 Kimi K3 trains specialists across general, coding, and agentic domains at multiple effort budgets, then combines them into one model. Its API requires complete reasoning content to be preserved across multi-turn tool use.[^kimi-k3]
 
 Qwen3.8 extends Qwen’s hybrid modes with explicit effort control and preserved thinking history. Retaining earlier reasoning can improve continuity and cache reuse, but the harness and inference runtime must agree on the chat-template contract.[^qwen38]
@@ -633,94 +638,6 @@ Reasoning can consume the output envelope. Detect incomplete states and budget g
 ### Treating labels as portable
 
 “Medium” on one model is not a standardized quantity. Recalibrate when the model or provider changes.
-
-## What comes next: from slider to allocator
-
-*These are dated, falsifiable bets with explicit odds — not a summary of announced roadmaps. Each names the observation that would settle it early and the one that would prove it wrong. Revisit by the end of 2029.*
-
-Everything above optimizes in one direction: find the lowest effort that clears the bar. That advice has a dependency it rarely states. You can only find that level if you can tell, cheaply and reliably, when the bar was missed. The escalation result works because tests fail loudly and for free. Remove the tests and change nothing else, and the same strategy becomes guessing.
-
-> Effort tuning is what you do when you cannot verify. The scarce input is not reasoning — it is a trustworthy signal that reasoning failed.
-
-So the useful way to sort workloads for the next few years is not by difficulty but by verification quality. Where verification is cheap and trustworthy, effort converges on *low, then retry*, and the interesting engineering moves to the verifier. Where verification is expensive or absent, effort stays a judgment call, and the interesting engineering moves to bounding the damage of being wrong. The bets follow that split.
-
-### Bet 1 — by the end of 2027, you shop for a verifier the way you shop for a model
-
-The published escalation result is not really a finding about effort. Running low first and rerunning the failures wins because a test suite named the failures, in seconds, at no cost. Every adaptive-effort scheme running in production today is downstream of a verifier somebody else already built: a compiler, a test runner, a JSON schema, a patch that either applies or does not.
-
-That makes verification the scarce input, and scarce inputs get priced. I expect a graded-response endpoint metered separately from generation and tuned for cheap, high-recall failure detection rather than for answer quality — the economics only work if checking is far cheaper than producing. Agent frameworks will configure a verifier beside a model, and “what is your verifier?” will become the first question asked of anyone claiming an effort-routing win.
-
-- **Confidence** ~70%
-- **Watch for** a frontier provider shipping a scoring or verification API priced below its cheapest generation tier, and framework configuration that names a verifier as a first-class component.
-- **Wrong if** verification stays a do-it-yourself concern — your tests, your judge prompt — and nobody sells it as a distinct metered product.
-
-### Bet 2 — by the end of 2027, effort splits into two named controls: depth and width
-
-The overload is already in the documentation. On Grok 4.6, `reasoning.effort` sets how far one trajectory runs; on the multi-agent model, the same field sets how many agents collaborate. Those are not two positions on one dial. Depth spends wall-clock time and risks committing to a single bad path. Width spends money in parallel and risks expensive disagreement. They have different latency curves, different failure modes, and different right answers for the same task.
-
-One integer cannot route both. The practical damage lands in evaluation: a sweep of “effort” across a provider that quietly changes which axis it means produces numbers that will not replicate. The fix is to name the axes and let the harness set them independently.
-
-- **Confidence** ~65%
-- **Watch for** a request body carrying both a trajectory-length control and a sample or agent count, documented as independent parameters.
-- **Wrong if** providers keep one field, document the per-model meaning, and gateways absorb the difference without anyone noticing a broken evaluation.
-
-### Bet 3 — by 2028, the cached prefix is a priced first-class object, and moving one between vendors still fails
-
-Two bets at very different odds, and I want both on the record.
-
-The first is nearly safe. If effort changes are appended around an immutable prefix, the prefix is the asset, and everything attaches to it: an explicit handle, a published TTL, a price per stored token per hour, an eviction contract, and metrics an application can schedule against. Gemini already names cached content. Implicit caching elsewhere is a transitional convenience that hides the number that decides the bill.
-
-The second I expect to lose. Someone will try to move a warm prefix — between providers, or between a hosted API and a self-hosted runtime — and it will not work outside narrow cases. A key–value cache is a function of the weights, the attention implementation, the quantization, and the tokenizer; “portable prefix” is closer to “portable CPU cache line” than to “portable file.” What ships instead will be portable *recomputation*: a signed description of the prefix that another provider can rebuild from scratch. That helps correctness and reproducibility. It does not help latency, which was the entire point.
-
-- **Confidence** ~80% that prefixes get handles and public prices; ~15% that anyone ships useful cross-vendor transfer
-- **Watch for** prefix handles with published pricing and TTLs on two or more providers — then read any portability spec carefully to see whether it quietly promises only re-derivation.
-- **Wrong if** prefix economics stay implicit and invisible to the application, or if cross-vendor cache transfer ships with a real latency win, in which case I was wrong about the half that mattered.
-
-### Bet 4 — by 2028, a mainstream harness ships a reasoning cache and reports its hit rate
-
-Reasoning tokens are the most expensive thing an agent produces and the only thing it routinely throws away. A long-running agent re-derives the same conclusions constantly: the same schema inferred, the same dependency traced, the same constraint re-checked turn after turn. Preserved thinking inside one conversation — GLM, Qwen3.8, Kimi K3 — is the first step. Retrieval *across* requests is the obvious second: index traces by the sub-problem they solved and serve one instead of deriving it again.
-
-This is harder than prompt caching and I am only half convinced it survives contact with production. A prompt-cache hit is safe because it is byte-identical. A reasoning-cache hit is a similarity judgment, and a confidently reused conclusion that no longer holds is far worse than a miss. The version that ships will be conservative — exact sub-problem keys, short lifetimes, and a re-verification step that eats much of the saving. Which points back at Bet 1: this is another feature that only works if checking is cheap.
-
-- **Confidence** ~55%
-- **Watch for** a framework reporting a reasoning-cache hit rate next to its prompt-cache hit rate.
-- **Wrong if** trace reuse stays confined to a single conversation because staleness proves too dangerous to sell.
-
-### Bet 5 — by 2029, effort acquires a regulatory floor, inverting the advice in this article
-
-This article optimizes downward: spend as little as the task allows. Auditors optimize the other way. Once an automated decision denies a claim, prices a loan, or triages a patient, “we used the cheapest setting our internal evaluation accepted” is a poor sentence to read aloud in an inquiry. The compliance artifact will not be the answer — answers were always reviewable. It will be evidence that the system deliberated: a minimum reasoning budget for a decision class, attested and logged, that the application may not route below.
-
-That is a strange thing to build. It means an effort *floor* enforced by policy rather than a ceiling enforced by cost, a provider-signed attestation that the floor was honored, and a genuine conflict between the cost engineer and the compliance officer over the same integer. It also creates a failure mode worth naming before it arrives: performative compute, where a system burns a mandated budget on reasoning that changes nothing, because the budget is the artifact rather than the outcome.
-
-- **Confidence** ~45% on the date, higher on the direction
-- **Watch for** the first procurement questionnaire or sector guideline that asks about inference-time compute for a decision class, rather than about model choice and human review.
-- **Wrong if** regulation keeps attaching only to outcomes, documentation, and human oversight, and never reaches into how much the machine thought.
-
-### Bet 6 — every routing table has a half-life of about a year, and the evaluation outlives it
-
-The most reliably repeated result in the open-weight literature is that a long trace from a strong model can be distilled into short behavior in a smaller one. Kimi’s Toggle work is one instance: roughly flat benchmark scores at substantially lower token usage. Run that forward and the token cost of any fixed quality bar falls steeply. My guess is roughly an order of magnitude every eighteen to twenty-four months; the exponent is a guess, the direction is the claim.
-
-The consequence is unglamorous and immediate. A hard-coded map from task class to effort level encodes last year’s price of quality. It does not fail loudly — it silently overspends, because the level that used to be necessary now sits two rungs above what the task needs. Rules rot; the sweep that generated them does not. That is the real reason this article keeps recommending an evaluation harness rather than a table of recommended levels.
-
-- **Confidence** ~75% on the direction, low on the exponent
-- **Watch for** your own effort sweep, re-run after a model upgrade, and how far left the frontier has moved.
-- **Wrong if** per-task token cost at a fixed quality bar stays roughly flat across two model generations on a public benchmark.
-
-![Two radar charts comparing benchmark performance and token usage before and after Kimi K2.5's Toggle training, showing similar scores with substantially lower token consumption.](../assets/token-efficient-rl-toggle.webp)
-
-*The ratchet, visible inside one training run: benchmark scores held roughly flat while token usage fell sharply. Every such result moves the level your router should have picked. From [Sebastian Raschka’s survey](https://magazine.sebastianraschka.com/p/controlling-reasoning-effort-in-llms).*
-
-### The bet against this article
-
-Every argument here assumes deep reasoning costs something a user can feel — money, latency, or both. Remove that and the article expires. If parallel trajectory search on cheap silicon and aggressive speculative decoding collapse the wall-clock cost of deep reasoning, and providers flatten the price to match, then maximum effort becomes Pareto-optimal. Faster stops being a reason to think less; cheaper stops being one too. The control leaves the API, the routers get deleted, and this becomes a note about an optimization problem that existed between roughly 2024 and 2028.
-
-I put that below 20% before 2030. But the leading indicator is unusually clean, so it is worth a calendar reminder: **watch for the first provider that prices its highest effort level the same as its lowest.** On the day that happens, stop reading this section and delete your router.
-
-- **Confidence** ~15% by 2030
-- **Watch for** flat pricing across an entire effort ladder, and a default that is the top of it.
-- **Wrong if** — well, if this one is right, everything above it is wrong.
-
-Short of that, the end state is not “always think harder.” It is an inference market inside each request: several possible actions — extend the trace, ask a verifier, sample alternatives, call a specialist — compete for a bounded budget, and the system keeps buying only while the expected improvement still exceeds the marginal cost. The slider was never the interesting object. The allocator is.
 
 ## Closing thoughts
 
