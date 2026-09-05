@@ -1,10 +1,10 @@
 # Reasoning Effort
 
-A zero-build, GitHub Pages-ready long-form guide to reasoning effort in LLMs. It covers provider APIs, open-weight training and serving, automatic effort selection, and the role of an agent harness in production.
+A zero-build, GitHub Pages-ready long-form guide to reasoning effort in LLMs. It covers provider APIs, open-weight training and serving, automatic effort selection, cache-preserving effort changes, and the role of an agent harness in production.
 
 ## What is included
 
-- A complete long-form article, from the history of test-time reasoning to current provider APIs, open-weight implementations, published benchmarks, agent harnesses, and production routing
+- A complete long-form article, from the history of test-time reasoning to current provider APIs, open-weight implementations, published benchmarks, agent harnesses, cache-aware control, and production routing
 - Text-first editorial layout with a narrow long-form reading column
 - Sticky section navigation and reading progress
 - Responsive layouts for desktop, tablet, and mobile
